@@ -191,7 +191,16 @@ async def ws_get_session(
 
     domain_data = hass.data.setdefault(DOMAIN, {})
     cache: dict[tuple[str, str], dict[str, Any]] = domain_data.setdefault(CACHE_KEY, {})
+    runner = data.get("mapper")
     cached = cache.get((entry_id, name))
+    # A clean cached before it had its alignment (the card fetches the moment a
+    # clean ends; the map merges it a little later) is parsed again once the
+    # alignment it would be drawn with has changed.
+    if cached is not None and runner is not None:
+        align_now, _source = runner.resolve(name)
+        if list(align_now or ()) != list(cached.get("alignment") or ()):
+            cache.pop((entry_id, name), None)
+            cached = None
     if cached is not None:
         connection.send_result(
             msg["id"],
@@ -219,9 +228,8 @@ async def ws_get_session(
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return
 
-    # Serve the run in the map's frame, not the robot's frame of the day.
-    runner = data.get("mapper")
-    align = runner.alignment(name) if runner is not None else None
+    # Serve the run in the map's frame, not the robot's frame of the day
+    align, source = runner.resolve(name, was_recording) if runner is not None else (None, "none")
 
     # Coverage-grid construction is CPU-bound; keep it off the event loop.
     try:
@@ -236,6 +244,9 @@ async def ws_get_session(
     if not parsed.get("path"):
         connection.send_error(msg["id"], "empty_session", "Session contains no pose data")
         return
+    # Which alignment the run is drawn with, so the card can say while a live
+    # clean is still settling (see LidarMapRunner.resolve)
+    parsed["alignment_source"] = source
 
     # Evaluated now rather than before the fetch: the session may have
     # completed while we were downloading it, and the flag the card gets
@@ -252,7 +263,7 @@ async def ws_get_session(
         if not was_recording:
             if len(cache) >= _CACHE_MAX:
                 cache.pop(next(iter(cache)))
-            cache[(entry_id, name)] = parsed
+            cache[(entry_id, name)] = {**parsed, "alignment": list(align) if align else None}
 
     connection.send_result(
         msg["id"],
