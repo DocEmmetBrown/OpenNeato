@@ -158,7 +158,8 @@ sensor states) are tagged so they cluster cleanly under HA's Diagnostic section.
   | Option | Default | What it does |
   |---|---|---|
   | `title` | `Cleaning replay` | Header text. Set to `""` to drop it and put the session picker first. |
-  | `entry_id` | *(first entry)* | Which OpenNeato config entry to read when there is more than one robot. |
+  | `entity` | *(the only robot)* | The robot's vacuum entity (`vacuum.…`). Required when more than one robot is set up; with one robot it can be left out. |
+  | `entry_id` | *(the only robot)* | The older way to pick a robot, by config entry id. `entity` is simpler; if neither matches, the card's error lists every robot with both. |
   | `session` | `latest` | `latest` follows the newest session (and switches to a clean as it starts); a filename pins the card to that one session. |
   | `height` | `360` | Map height in px, or `fill` to take whatever room the column gives. |
   | `speed` | `8` | Playback rate in session-seconds per real second. |
