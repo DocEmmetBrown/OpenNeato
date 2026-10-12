@@ -256,6 +256,15 @@ sensor states) are tagged so they cluster cleanly under HA's Diagnostic section.
   only the date and time of the session on screen while it is closed, and the full line for every
   session while its list is open. A session recorded before the bridge had the real time (NTP not
   synced, and no robot clock) shows as *Date unknown*. Check *NTP synced* on the bridge's device.
+- **Migrating the old replay card** — existing `type: custom:openneato-replay-card` dashboards remain
+  supported by a compatibility shim and do not need to be rewritten. New dashboards should use
+  `custom:openneato-card` with the `custom:openneato-replay` feature. The old `title` becomes the tile's
+  `name`; `entity` selects the tile vacuum, while `entry_id` remains a fallback for older multi-robot
+  dashboards. `session`, including a pinned historical session, `speed`, `autoplay`, `fit`, `rotation`,
+  `floorplan*`, `grid*`, `trail`, `units`, `show_picker`, and `show_stats` are translated to the replay
+  feature. Legacy `imperial` units become Home Assistant's `us_customary`; a legacy `height: fill` has
+  no exact tile-feature equivalent and uses the replay feature's normal pixel height. The shim may be
+  removed only in a future major release.
 - **Reading the diagnostics** — two field names are misleading and the integration corrects for them:
   `errorCode` returns **200** (`UI_ALERT_INVALID`) when nothing is wrong, so the *Error code* sensor
   reports *unknown* instead; and `chargerMAH` / `dischargeMAH` are **milliamps, not milliamp-hours**
