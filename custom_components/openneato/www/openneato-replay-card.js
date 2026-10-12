@@ -11,7 +11,7 @@
  * (openneato/sessions, openneato/session) — the browser only draws.
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.1.1";
 
 // Breathing room around the fitted map, in CSS pixels. Kept small: the fit
 // already leaves slack wherever the run is not the shape of the card, and
@@ -358,8 +358,16 @@ class OpenNeatoReplayCard extends HTMLElement {
 
     /* ---- Lovelace plumbing ---- */
 
-    static getStubConfig() {
-        return { type: "custom:openneato-replay-card" };
+    // With several robots the card must say which one it is for (issue #23):
+    // the picker's stub names the first by its vacuum entity.
+    static getStubConfig(hass) {
+        const robots = Object.values(hass?.entities ?? {})
+            .filter((e) => e.platform === "openneato" && String(e.entity_id).startsWith("vacuum."))
+            .map((e) => e.entity_id)
+            .sort();
+        return robots.length > 1
+            ? { type: "custom:openneato-replay-card", entity: robots[0] }
+            : { type: "custom:openneato-replay-card" };
     }
 
     setConfig(config) {
@@ -941,8 +949,12 @@ class OpenNeatoReplayCard extends HTMLElement {
         this._sessionsLoading = true;
         this._lastListAt = Date.now();
         try {
+            // The robot is named by its vacuum entity; entry_id is the older
+            // way and still works. The answer carries the entry id, which the
+            // other commands use.
             const res = await this._hass.callWS({
                 type: "openneato/sessions",
+                ...(this._config.entity ? { entity_id: this._config.entity } : {}),
                 ...(this._config.entry_id ? { entry_id: this._config.entry_id } : {}),
             });
             this._entryId = res.entry_id;
