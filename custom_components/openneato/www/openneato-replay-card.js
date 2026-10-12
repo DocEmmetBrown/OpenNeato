@@ -1135,12 +1135,14 @@ class OpenNeatoReplay extends HTMLElement {
         return (hass && hass.locale && hass.locale.language) || navigator.language;
     }
 
+    // Which robot the websocket is asked about. An entity or entry id written
+    // in the feature's own options wins over the entity the feature sits under,
+    // since the person chose it; with neither, the tile's robot is the one.
     _target() {
-        const entityId = this._config.entity_id || this._context?.entity_id;
-        return {
-            ...(entityId ? { entity_id: entityId } : {}),
-            ...(!entityId && this._config.entry_id ? { entry_id: this._config.entry_id } : {}),
-        };
+        if (this._config.entity_id) return { entity_id: this._config.entity_id };
+        if (this._config.entry_id) return { entry_id: this._config.entry_id };
+        const entityId = this._context?.entity_id;
+        return entityId ? { entity_id: entityId } : {};
     }
 
     async _loadSessions() {
@@ -2889,6 +2891,16 @@ function robots(hass) {
         .sort();
 }
 
+// The robot set up by a config entry: its device lists the entry. Older cards
+// named a robot this way (entry_id), before the card took an entity.
+function robotOfEntry(hass, entryId) {
+    if (!entryId) return undefined;
+    return robots(hass).find((id) => {
+        const device = hass.devices?.[hass.entities?.[id]?.device_id];
+        return Array.isArray(device?.config_entries) && device.config_entries.includes(entryId);
+    });
+}
+
 // The other entities of the robot's device, in the domains given
 function siblings(hass, entityId, domains) {
     const deviceId = hass?.entities?.[entityId]?.device_id;
@@ -3771,7 +3783,7 @@ function legacyReplayConfig(config) {
                 battery: showStats,
                 hide_labels: false,
             },
-            ...(config.entry_id ? { entry_id: config.entry_id } : {}),
+            ...(config.entry_id && !config.entity ? { entry_id: config.entry_id } : {}),
             ...(config.session ? { session: config.session } : {}),
             ...(config.speed !== undefined ? { speed: config.speed } : {}),
             ...(config.autoplay !== undefined ? { autoplay: config.autoplay } : {}),
@@ -3811,11 +3823,44 @@ class OpenNeatoLegacyReplayCard extends HTMLElement {
 
     setConfig(config) {
         if (!config) throw new Error("Invalid configuration");
-        this._card.setConfig(legacyReplayConfig(config));
+        this._legacy = config;
+        this._lookup = null;
+        this._applied = null;
+        this._applyLegacy();
     }
 
     set hass(hass) {
+        this._hass = hass;
+        this._applyLegacy();
         this._card.hass = hass;
+    }
+
+    // The wrapped card is configured once the robot is known. An old
+    // multi-robot card names it by entry_id, which the registries turn into
+    // the vacuum entity once hass is here; until then (or if the entry is
+    // unknown) the feature keeps the entry_id, so the map is right even while
+    // the tile is not. The card is reconfigured only when the answer changes.
+    _applyLegacy() {
+        const legacy = this._legacy;
+        if (!legacy) return;
+        const entity = legacy.entity || this._entryEntity();
+        const applied = { legacy, entity: entity || "" };
+        if (this._applied && this._applied.legacy === applied.legacy && this._applied.entity === applied.entity) return;
+        this._applied = applied;
+        this._card.setConfig(legacyReplayConfig(entity ? { ...legacy, entity } : legacy));
+    }
+
+    // The registries are new objects only when they change, so an entry that
+    // was not found is not looked for again until they do
+    _entryEntity() {
+        const hass = this._hass;
+        const entryId = this._legacy?.entry_id;
+        if (!hass || !entryId) return undefined;
+        const seen = this._lookup;
+        if (seen && seen.entities === hass.entities && seen.devices === hass.devices) return seen.entity;
+        const entity = robotOfEntry(hass, entryId);
+        this._lookup = { entities: hass.entities, devices: hass.devices, entity };
+        return entity;
     }
 
     set preview(value) {
