@@ -1,6 +1,11 @@
 /*
- * OpenNeato replay card
+ * OpenNeato card
  *
+ * A tile card for the OpenNeato robot, with tile features under it: the replay
+ * of a cleaning session (below), the robot's controls, and its configuration.
+ * A tap on the tile shows or hides them; nothing is loaded while they are hidden.
+ *
+ * The replay
  * Plays a cleaning session back on a canvas at display refresh rate, the way
  * the robot's own web UI does. The rendering is a port of
  * frontend/src/views/history/helpers.ts::renderMap and the playback loop is a
@@ -11,7 +16,7 @@
  * (openneato/sessions, openneato/session) — the browser only draws.
  */
 
-const CARD_VERSION = "1.1.1";
+const CARD_VERSION = "1.1.0";
 
 // Breathing room around the fitted map, in CSS pixels. Kept small: the fit
 // already leaves slack wherever the run is not the shape of the card, and
@@ -21,9 +26,6 @@ const MAP_PAD = 8;
 // period. The reference plan works out at a period of 3 px with a 1 px gutter,
 // so a third; a quarter reads the same and leaves more colour in the square.
 const GRID_GUTTER_RATIO = 0.28;
-// Floor for `height: fill`, so a short column cannot squeeze the map to
-// nothing.
-const FILL_MIN_HEIGHT = 220;
 // Cell size to fall back on before a session has loaded. The robot maps at
 // 5 cm and so does lidar_mapper.CELL_M.
 const DEFAULT_CELL_M = 0.05;
@@ -46,7 +48,8 @@ const MAX_FRAME_DT = 1 / 15;
 // Playback rates offered by the speed button, in session-seconds per real
 // second. 1 is true real time; a full house clean runs close to an hour, so
 // the useful range goes well past it.
-const SPEED_STEPS = [1, 2, 4, 8, 16, 32, 64];
+const SPEED_STEPS = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+const SPEED_STORAGE_KEY = "openneato-card:speed";
 // World grid the viewport snaps to. One metre swallows the usual half-metre
 // of drift in where a cleaning run ends up reaching, without wasting much of
 // the canvas on margin.
@@ -75,17 +78,14 @@ const DEFAULTS = {
     autoplay: false,
     floorplan: true,
     floorplan_opacity: 1,
-    // The Neato-app look: half-metre lines, the plan quantised onto the
-    // lattice, coverage and trail as square tiles. false gives a flat map —
-    // no lines, smooth plan, smooth swept area and a rounded track.
-    grid: true,
-    // Per-layer overrides of `grid`; unset follows it. `tiled_coverage`
-    // covers the trail too: it is painted on the same lattice as the
-    // coverage so the two never read as different drawings.
-    grid_lines: undefined,
-    tiled_plan: undefined,
-    tiled_coverage: undefined,
-    // "auto" follows Home Assistant's unit system; "metric" or "imperial"
+    // The Neato-app look, one part at a time: half-metre lines, the plan
+    // quantised onto the lattice, and coverage and trail as square tiles. Off,
+    // each part is flat instead: no lines, a smooth plan, a smooth swept area
+    // and a rounded track.
+    grid_lines: true,
+    tiled_plan: true,
+    tiled_coverage: true,
+    // "auto" follows Home Assistant's unit system; "metric" or "us_customary"
     // overrides it.
     units: "auto",
     // Fading track of squares behind the robot. Set false for cleaned/not
@@ -100,11 +100,82 @@ const DEFAULTS = {
     // "session" — raw cleaned-area bounds; tightest, but the view shifts and
     //             rescales from one cleaning to the next.
     fit: "stable",
+    // The session picker. Hidden, the map shows the latest run, and follows a
+    // clean as it starts.
     show_picker: true,
-    show_stats: true,
+    // The three figures beside the picker
+    show_distance: true,
+    show_duration: true,
+    show_battery: true,
     height: 360,
-    session: "latest",
 };
+
+// The Replay map feature's options as written in YAML, with their defaults.
+// Options that belong together are nested.
+const REPLAY_DEFAULTS = {
+    header: { selector: true, area: true, distance: true, duration: true, battery: true, hide_labels: true },
+    autoplay: false,
+    units: "auto",
+    height: 360,
+    fit: "stable",
+    live_badge: { show: true, position: "bottom_right" },
+    alignment_badge: { show: true, position: "bottom_right" },
+    rotation: { straighten: true, degrees: 0 },
+    floorplan: { show: true, tiled: true, opacity: 1 },
+    grid: true,
+    coverage: { trail: true, tiled: true },
+};
+
+// Material Design Icons, as Home Assistant draws them
+const MDI_MENU_DOWN = "M7,10L12,15L17,10H7Z";
+const MDI_DELETE = "M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z";
+
+// The alignment badge's word for each way a live clean can be lined up
+const ALIGNMENT_WORDS = { dock: "Dock", live: "Walls", previous: "Previous", none: "Unaligned" };
+const ALIGNMENT_TITLES = {
+    Dock: "Lined up on the dock",
+    Walls: "Lined up by matching the walls",
+    Previous: "Lined up as the last clean was, until this one has its own fit",
+    Unaligned: "Not lined up with the floorplan yet",
+};
+
+// The map corners a badge can sit in
+const CORNERS = ["top_left", "top_right", "bottom_left", "bottom_right"];
+
+// The YAML read into the flat values the drawing code uses
+function replayOptions(c = {}) {
+    const g = (group, key) => c[group]?.[key] ?? REPLAY_DEFAULTS[group][key];
+    return {
+        show_picker: g("header", "selector"),
+        show_area: g("header", "area"),
+        show_distance: g("header", "distance"),
+        show_duration: g("header", "duration"),
+        show_battery: g("header", "battery"),
+        hide_labels: g("header", "hide_labels"),
+        speed: c.speed ?? DEFAULTS.speed,
+        session: c.session ?? "latest",
+        autoplay: c.autoplay ?? REPLAY_DEFAULTS.autoplay,
+        units: c.units ?? REPLAY_DEFAULTS.units,
+        height: c.height ?? REPLAY_DEFAULTS.height,
+        fit: c.fit ?? REPLAY_DEFAULTS.fit,
+        live_badge_show: g("live_badge", "show"),
+        live_badge_position: CORNERS.includes(c.live_badge?.position) ? c.live_badge.position : REPLAY_DEFAULTS.live_badge.position,
+        alignment_badge_show: g("alignment_badge", "show"),
+        alignment_badge_position: CORNERS.includes(c.alignment_badge?.position)
+            ? c.alignment_badge.position
+            : REPLAY_DEFAULTS.alignment_badge.position,
+        straighten: g("rotation", "straighten"),
+        rotation_degrees: Number(g("rotation", "degrees")) || 0,
+        floorplan: g("floorplan", "show"),
+        tiled_plan: g("floorplan", "tiled"),
+        floorplan_opacity: g("floorplan", "opacity"),
+        grid_lines: c.grid ?? REPLAY_DEFAULTS.grid,
+        trail: g("coverage", "trail"),
+        tiled_coverage: g("coverage", "tiled"),
+        ...(c.entity_id ? { entity_id: c.entity_id } : {}),
+        ...(c.entry_id ? { entry_id: c.entry_id } : {}),
+    };
+}
 
 /* ── small helpers ──────────────────────────────────────────────────── */
 
@@ -140,17 +211,17 @@ function modeLabel(mode) {
     return { house: "House Clean", spot: "Spot Clean", manual: "Manual Clean" }[mode] || mode || "Clean";
 }
 
-// "metric" | "imperial" from the card option, else from Home Assistant's
+// "metric" | "us_customary" from the card option, else from Home Assistant's
 // unit system. `area` is the exact unit the user chose on recent cores;
 // `length` ("km" | "mi") is the fallback every version has. Anything else
 // in the option is treated as "auto" — a typo must not blank the card.
 function resolveUnits(config, hass) {
     const u = config && config.units;
-    if (u === "metric" || u === "imperial") return u;
+    if (u === "metric" || u === "us_customary") return u;
     const us = (hass && hass.config && hass.config.unit_system) || {};
-    if (us.area === "ft²" || us.area === "ft^2") return "imperial";
+    if (us.area === "ft²" || us.area === "ft^2") return "us_customary";
     if (us.area) return "metric";
-    return us.length === "mi" ? "imperial" : "metric";
+    return us.length === "mi" ? "us_customary" : "metric";
 }
 
 function formatNumber(value, locale, digits) {
@@ -170,7 +241,7 @@ function formatNumber(value, locale, digits) {
 function formatArea(m2, units, locale) {
     const n = Number(m2);
     if (m2 === undefined || m2 === null || Number.isNaN(n)) return "";
-    return units === "imperial"
+    return units === "us_customary"
         ? `${formatNumber(n * SQM_TO_SQFT, locale, 0)}\u00a0ft²`
         : `${formatNumber(n, locale, 1)}\u00a0m²`;
 }
@@ -178,7 +249,7 @@ function formatArea(m2, units, locale) {
 function formatDistance(m, units, locale) {
     const n = Number(m);
     if (m === undefined || m === null || Number.isNaN(n)) return "";
-    return units === "imperial"
+    return units === "us_customary"
         ? `${formatNumber(n * METERS_TO_FEET, locale, 0)}\u00a0ft`
         : `${formatNumber(n, locale, 1)}\u00a0m`;
 }
@@ -239,6 +310,19 @@ class Session {
         return this.path[i * 4 + 3];
     }
 
+    // How far the robot has gone along the path, in metres. The firmware writes
+    // a clean's distance only when it ends; while it is live, this stands in.
+    pathLength() {
+        if (this._length === undefined) {
+            let total = 0;
+            for (let i = 1; i < this.poseCount; i++) {
+                total += Math.hypot(this.path[i * 4] - this.path[(i - 1) * 4], this.path[i * 4 + 1] - this.path[(i - 1) * 4 + 1]);
+            }
+            this._length = total;
+        }
+        return this._length;
+    }
+
     // Robot pose at a session-relative timestamp, linearly interpolated in
     // position and shortest-arc in heading so the sprite never snaps.
     interpolate(ts) {
@@ -291,7 +375,7 @@ class Session {
 
 /* ── the card ───────────────────────────────────────────────────────── */
 
-class OpenNeatoReplayCard extends HTMLElement {
+class OpenNeatoReplay extends HTMLElement {
     constructor() {
         super();
         this.attachShadow({ mode: "open" });
@@ -304,8 +388,7 @@ class OpenNeatoReplayCard extends HTMLElement {
         this._loading = false;
         this._sessionsLoading = false;
         // Outcome of the last fetch for `_selectedName`: null while nothing
-        // has been tried, then "ok" | "empty" | "error" | "missing" (a pinned
-        // session that is not on the robot yet). A failed completed
+        // has been tried, then "ok" | "empty" | "error". A failed completed
         // session is not retried by the list tick; a live one is retried on
         // the live cadence.
         this._loadState = null;
@@ -358,54 +441,30 @@ class OpenNeatoReplayCard extends HTMLElement {
 
     /* ---- Lovelace plumbing ---- */
 
-    // With several robots the card must say which one it is for (issue #23):
-    // the picker's stub names the first by its vacuum entity.
-    static getStubConfig(hass) {
-        const robots = Object.values(hass?.entities ?? {})
-            .filter((e) => e.platform === "openneato" && String(e.entity_id).startsWith("vacuum."))
-            .map((e) => e.entity_id)
-            .sort();
-        return robots.length > 1
-            ? { type: "custom:openneato-replay-card", entity: robots[0] }
-            : { type: "custom:openneato-replay-card" };
+    static getStubConfig() {
+        return { type: "custom:openneato-replay" };
+    }
+
+    static getConfigElement() {
+        return document.createElement("openneato-feature-editor");
+    }
+
+    // Tile features are given the entity they sit under
+    set context(context) {
+        this._context = context;
     }
 
     setConfig(config) {
-        this._config = { ...DEFAULTS, ...config };
-        this._speed = Number(this._config.speed) > 0 ? Number(this._config.speed) : DEFAULTS.speed;
-        this._selectedName =
-            this._config.session && this._config.session !== "latest" ? this._config.session : null;
-        const master = this._config.grid ?? DEFAULTS.grid;
+        this._config = { ...DEFAULTS, ...replayOptions(config) };
+        this._speed = this._storedSpeed(this._config.speed);
+        this._pinnedSession = this._config.session && this._config.session !== "latest" ? this._config.session : null;
+        this._selectedName = this._pinnedSession;
         this._look = {
-            lines: this._config.grid_lines ?? master,
-            plan: this._config.tiled_plan ?? master,
-            tiles: this._config.tiled_coverage ?? master,
+            lines: this._config.grid_lines !== false,
+            plan: this._config.tiled_plan !== false,
+            tiles: this._config.tiled_coverage !== false,
         };
         this._buildDom();
-    }
-
-    // Make the wrapper Home Assistant puts around this card stretch.
-    //
-    // `height: fill` is useless on its own: the card sits inside a `hui-card`
-    // that sizes to its content, so asking for 100% of an auto height gives
-    // back the content height. Styling that wrapper from the dashboard does
-    // not work either — `stack-in-card` renders its children through a
-    // `hui-vertical-stack-card`, which puts the wrapper a second shadow root
-    // down, and CSS does not cross shadow boundaries. Reaching one level out
-    // from here is the only way left, so keep it to exactly that: set flex on
-    // the immediate parent and touch nothing else.
-    _stretchWrapper() {
-        const wrapper = this.parentElement;
-        if (!wrapper) return;
-        wrapper.style.flex = "1 1 auto";
-        wrapper.style.minHeight = "0";
-        wrapper.style.display = "flex";
-        wrapper.style.flexDirection = "column";
-    }
-
-    getCardSize() {
-        const h = Number(this._config.height);
-        return Math.ceil((Number.isFinite(h) ? h : DEFAULTS.height) / 50) + 1;
     }
 
     // Home Assistant calls this on every state change. It only stores the
@@ -426,9 +485,6 @@ class OpenNeatoReplayCard extends HTMLElement {
     }
 
     connectedCallback() {
-        // setConfig runs before the card is in the tree, so the wrapper may not
-        // have existed yet; do it again now that it certainly does.
-        if (this._config && this._config.height === "fill") this._stretchWrapper();
         if (this._canvas) this._observeResize();
         document.addEventListener("visibilitychange", this._onVisibilityBound);
         this._ensurePoll();
@@ -453,18 +509,38 @@ class OpenNeatoReplayCard extends HTMLElement {
         const root = this.shadowRoot;
         root.innerHTML = `
             <style>
+                /* A tile feature: the tile card is the frame */
                 ha-card {
                     display: flex;
                     flex-direction: column;
                     overflow: hidden;
+                    background: none;
+                    box-shadow: none;
+                    border: none;
+                    border-radius: 0;
                 }
+                :host {
+                    display: block;
+                    /* The type of the tile card's state line, by the same variables
+                       and defaults, so a theme changes both together */
+                    --n-size: var(--ha-tile-info-secondary-font-size, var(--ha-font-size-s, 0.75rem));
+                    --n-weight: var(--ha-tile-info-secondary-font-weight, var(--ha-font-weight-normal, 400));
+                    --n-spacing: var(--ha-tile-info-secondary-letter-spacing, 0.4px);
+                    --n-line: var(--ha-tile-info-secondary-line-height, var(--ha-line-height-condensed, 1.2));
+                }
+                .head, .controls, .corner {
+                    font-size: var(--n-size);
+                    font-weight: var(--n-weight);
+                    letter-spacing: var(--n-spacing);
+                    line-height: var(--n-line);
+                }
+                .stats:empty { display: none; }
                 /* Several elements below set their own display, which would
                    otherwise beat the hidden attribute. */
                 [hidden] {
                     display: none !important;
                 }
-                /* One row: title (only if configured), then the session
-                   picker, then the stats. The stats scroll inside their own
+                /* One row: the session picker, then the stats. The stats scroll inside their own
                    box rather than wrapping, so the header stays one line at
                    any width. */
                 .head {
@@ -474,37 +550,85 @@ class OpenNeatoReplayCard extends HTMLElement {
                     padding: 12px 16px 8px;
                     flex-wrap: nowrap;
                 }
-                .title {
-                    font-size: 1.1rem;
-                    font-weight: 500;
-                    color: var(--primary-text-color);
-                    flex: 0 1 auto;
-                    min-width: 0;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
-                /* An empty title is the common config — collapse it so the
-                   picker really is the first thing on the row. */
-                .title:empty {
-                    display: none;
-                }
-                select {
-                    background: var(--secondary-background-color);
-                    color: var(--primary-text-color);
-                    border: 1px solid var(--divider-color);
-                    border-radius: 6px;
-                    padding: 4px 8px;
-                    font-size: 0.85rem;
+                ha-dropdown {
                     flex: 0 1 auto;
                     min-width: 0;
                     max-width: 55%;
+                }
+                /* The menu's button: the date of the session on screen */
+                /* Home Assistant's select menu as its tile features set it up:
+                   the theme's feature height, corners and colour, and the
+                   component's own fill, hover and focus ring (the component
+                   itself cannot carry a delete button on each line) */
+                .picker {
+                    --menu-fill: var(--disabled-color);
+                    position: relative;
+                    overflow: hidden;
+                    z-index: 0;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 10px;
+                    max-width: 100%;
+                    height: var(--feature-height, 42px);
+                    box-sizing: border-box;
+                    background: none;
+                    color: var(--primary-text-color);
+                    border: none;
+                    outline: none;
+                    border-radius: var(--feature-border-radius, var(--ha-border-radius-lg, 12px));
+                    padding: 6px 10px;
+                    transition: box-shadow 180ms ease-in-out;
+                    font: inherit;
+                    font-size: var(--ha-font-size-m, 1rem);
+                    font-weight: var(--ha-font-weight-normal, 400);
+                    letter-spacing: 0.25px;
+                    line-height: 1.4;
+                    cursor: pointer;
+                }
+                .picker::before {
+                    content: "";
+                    position: absolute;
+                    inset: 0;
+                    z-index: -1;
+                    background-color: var(--menu-fill);
+                    opacity: 0.2;
+                    transition: background-color 180ms ease-in-out;
+                }
+                .picker:hover { --menu-fill: var(--ha-color-on-neutral-quiet, var(--disabled-color)); }
+                .picker:focus-visible { box-shadow: 0 0 0 2px var(--feature-color, var(--secondary-text-color)); }
+                ha-dropdown::part(menu) {
+                    min-width: var(--select-menu-width, 0);
+                }
+                ha-dropdown-item {
+                    font-size: var(--ha-font-size-m, 1rem);
+                    letter-spacing: 0.25px;
+                }
+                .picker .text {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .picker ha-svg-icon {
+                    --mdc-icon-size: 18px;
+                    flex: 0 0 auto;
+                }
+                /* Each finished session's own delete button, at the end of its line */
+                ha-dropdown-item ha-icon-button {
+                    --mdc-icon-button-size: 32px;
+                    --mdc-icon-size: 18px;
+                    margin: -4px -4px -4px 8px;
+                    color: var(--secondary-text-color);
+                }
+                ha-dropdown-item ha-icon-button:hover {
+                    color: var(--error-color, #db4437);
                 }
                 .stats {
                     display: flex;
                     flex-wrap: nowrap;
                     gap: 16px;
-                    font-size: 0.8rem;
+                    /* The same 16px at the ends as between the figures, so the
+                       space around each is even */
+                    padding-inline: 16px;
                     color: var(--secondary-text-color);
                     flex: 1 1 auto;
                     min-width: 0;
@@ -514,38 +638,18 @@ class OpenNeatoReplayCard extends HTMLElement {
                 .stats::-webkit-scrollbar {
                     display: none;
                 }
+                /* Even space around the figures when they fit; from the left
+                   when they do not (auto margins give way to nothing) */
                 .stats span {
                     white-space: nowrap;
+                    margin-left: auto;
                 }
-                .del {
-                    flex: 0 0 auto;
-                    display: grid;
-                    place-items: center;
-                    width: 28px;
-                    height: 28px;
-                    padding: 0;
-                    border: none;
-                    border-radius: 6px;
-                    background: transparent;
-                    color: var(--secondary-text-color);
-                    cursor: pointer;
-                }
-                .del svg {
-                    width: 17px;
-                    height: 17px;
-                    fill: currentColor;
-                }
-                .del:hover:not(:disabled) {
-                    color: var(--error-color, #db4437);
-                    background: var(--secondary-background-color);
-                }
-                .del:disabled {
-                    opacity: 0.35;
-                    cursor: default;
+                .stats span:last-child {
+                    margin-right: auto;
                 }
                 .stats b {
                     color: var(--primary-text-color);
-                    font-weight: 500;
+                    font-weight: var(--n-weight);
                 }
                 .stage {
                     position: relative;
@@ -568,6 +672,11 @@ class OpenNeatoReplayCard extends HTMLElement {
                     cursor: grab;
                 }
                 canvas.dragging { cursor: grabbing; }
+                /* The picture before an alignment change, faded out over the new one */
+                canvas.fade {
+                    pointer-events: none;
+                    opacity: 0;
+                }
                 .overlay {
                     position: absolute;
                     inset: 0;
@@ -588,11 +697,24 @@ class OpenNeatoReplayCard extends HTMLElement {
                     color: var(--secondary-text-color);
                     font-size: 0.8rem;
                 }
+                /* The row never spills out of the card: the scrubber gives way
+                   first, then the total time on a narrow card, and anything
+                   still too wide is clipped rather than pushed outside. */
                 .controls {
                     display: flex;
                     align-items: center;
                     gap: 8px;
-                    padding: 8px 16px 12px;
+                    /* The top makes room for the time above the scrubber's marker */
+                    padding: 22px 16px 12px;
+                    min-width: 0;
+                    overflow: hidden;
+                    container-type: inline-size;
+                }
+                .controls > * {
+                    flex-shrink: 0;
+                }
+                @container (max-width: 300px) {
+                    .clock.total { display: none; }
                 }
                 button {
                     background: none;
@@ -611,9 +733,7 @@ class OpenNeatoReplayCard extends HTMLElement {
                     border-radius: 10px;
                     padding: 3px 8px;
                     font: inherit;
-                    font-size: 0.75rem;
                     font-variant-numeric: tabular-nums;
-                    line-height: 1.4;
                     color: var(--secondary-text-color);
                     border: 1px solid var(--divider-color);
                     min-width: 38px;
@@ -629,11 +749,40 @@ class OpenNeatoReplayCard extends HTMLElement {
                     border-radius: 10px;
                     padding: 3px 8px;
                     font: inherit;
-                    font-size: 0.75rem;
-                    line-height: 1.4;
                     white-space: nowrap;
                     color: var(--live);
                     border: 1px solid var(--live);
+                }
+                /* Each corner holds its badges side by side, the same inset
+                   from both edges; a badge's own redraws never move it */
+                .corner {
+                    --inset: 8px;
+                    position: absolute;
+                    z-index: 1;
+                    display: flex;
+                    gap: 6px;
+                    align-items: center;
+                }
+                .corner:empty { display: none; }
+                .corner.top_left { top: var(--inset); left: var(--inset); }
+                .corner.top_right { top: var(--inset); right: var(--inset); }
+                .corner.bottom_left { bottom: var(--inset); left: var(--inset); }
+                .corner.bottom_right { bottom: var(--inset); right: var(--inset); }
+                .corner button.live {
+                    background: var(--card-background-color);
+                }
+                /* How the live track is lined up, in one word; the Live chip's
+                   size and shape, in blue */
+                .method {
+                    --method: color-mix(in srgb, var(--info-color, #039be5) 75%, #000);
+                    display: inline-flex;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font: inherit;
+                    white-space: nowrap;
+                    color: #fff;
+                    background: var(--method);
+                    border: 1px solid var(--method);
                 }
                 button.live.on {
                     background: var(--live);
@@ -662,13 +811,36 @@ class OpenNeatoReplayCard extends HTMLElement {
                 }
                 .clock {
                     font-variant-numeric: tabular-nums;
-                    font-size: 0.8rem;
                     color: var(--secondary-text-color);
                     min-width: 42px;
                     text-align: center;
                 }
+                /* The scrubber, with the time so far just above its marker */
+                .scrubwrap {
+                    position: relative;
+                    flex: 1 1 0;
+                    width: 0;
+                    min-width: 32px;
+                    display: flex;
+                    align-items: center;
+                    --thumb: 18px;
+                    --frac: 0;
+                }
+                .tip {
+                    position: absolute;
+                    bottom: calc(50% + var(--thumb) / 2 + 2px);
+                    left: calc(var(--thumb) / 2 + var(--frac) * (100% - var(--thumb)));
+                    transform: translateX(-50%);
+                    font-variant-numeric: tabular-nums;
+                    color: var(--primary-text-color);
+                    white-space: nowrap;
+                    pointer-events: none;
+                }
                 input[type="range"] {
-                    flex: 1;
+                    flex: 1 1 auto;
+                    width: 100%;
+                    min-width: 0;
+                    margin: 0;
                     -webkit-appearance: none;
                     appearance: none;
                     height: 6px;
@@ -684,15 +856,17 @@ class OpenNeatoReplayCard extends HTMLElement {
                 }
                 input[type="range"]::-webkit-slider-thumb {
                     -webkit-appearance: none;
-                    width: 14px;
-                    height: 14px;
+                    width: var(--thumb);
+                    height: var(--thumb);
+                    box-sizing: border-box;
                     border-radius: 50%;
                     background: var(--primary-text-color);
                     border: 2px solid var(--card-background-color);
                 }
                 input[type="range"]::-moz-range-thumb {
-                    width: 14px;
-                    height: 14px;
+                    width: var(--thumb);
+                    height: var(--thumb);
+                    box-sizing: border-box;
                     border-radius: 50%;
                     background: var(--primary-text-color);
                     border: 2px solid var(--card-background-color);
@@ -700,16 +874,23 @@ class OpenNeatoReplayCard extends HTMLElement {
             </style>
             <ha-card>
                 <div class="head">
-                    <div class="title">Cleaning replay</div>
-                    <select class="picker" aria-label="Cleaning session"></select>
-                    <button class="del" title="Delete this session" aria-label="Delete this session" disabled>
-                        <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                    </button>
+                    <ha-dropdown class="sessions" placement="bottom-start">
+                        <button class="picker" slot="trigger" type="button" aria-label="Cleaning session">
+                            <span class="text"></span><ha-svg-icon></ha-svg-icon>
+                        </button>
+                    </ha-dropdown>
                     <div class="stats"></div>
                 </div>
                 <div class="stage">
                     <canvas></canvas>
                     <div class="overlay">Loading…</div>
+                    <canvas class="fade" aria-hidden="true"></canvas>
+                    <div class="corner top_left"></div>
+                    <div class="corner top_right"></div>
+                    <div class="corner bottom_left"></div>
+                    <div class="corner bottom_right"></div>
+                    <span class="method" hidden></span>
+                    <button class="live" hidden></button>
                 </div>
                 <div class="controls">
                     <button class="play" title="Play/Pause" disabled>
@@ -719,19 +900,22 @@ class OpenNeatoReplayCard extends HTMLElement {
                         <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
                     </button>
                     <button class="speed" title="Playback speed" disabled>8&times;</button>
-                    <span class="clock elapsed">0:00</span>
-                    <input type="range" class="scrub" min="0" max="1" step="0.05" value="0" disabled>
+                    <div class="scrubwrap">
+                        <span class="tip elapsed">0:00</span>
+                        <input type="range" class="scrub" min="0" max="1" step="0.05" value="0" disabled>
+                    </div>
                     <span class="clock total">0:00</span>
-                    <button class="live" hidden></button>
                 </div>
             </ha-card>
         `;
 
         this._card = root.querySelector("ha-card");
         this._head = root.querySelector(".head");
+        this._menu = root.querySelector("ha-dropdown.sessions");
         this._picker = root.querySelector(".picker");
+        this._pickerText = root.querySelector(".picker .text");
+        root.querySelector(".picker ha-svg-icon").path = MDI_MENU_DOWN;
         this._statsEl = root.querySelector(".stats");
-        this._delBtn = root.querySelector(".del");
         this._stage = root.querySelector(".stage");
         this._canvas = root.querySelector("canvas");
         this._overlay = root.querySelector(".overlay");
@@ -741,51 +925,37 @@ class OpenNeatoReplayCard extends HTMLElement {
         this._elapsedEl = root.querySelector(".elapsed");
         this._totalEl = root.querySelector(".total");
         this._scrub = root.querySelector(".scrub");
+        this._scrubWrap = root.querySelector(".scrubwrap");
         this._liveBtn = root.querySelector(".live");
+        this._methodEl = root.querySelector(".method");
+        this._fadeCanvas = root.querySelector("canvas.fade");
+        // Each badge in its corner; sharing one, the method sits left of Live
+        root.querySelector(`.corner.${this._config.alignment_badge_position}`).append(this._methodEl);
+        root.querySelector(`.corner.${this._config.live_badge_position}`).append(this._liveBtn);
 
-        // `height: fill` lets the map grow to whatever room the column gives
-        // it, instead of pinning a pixel count that has to be re-guessed every
-        // time a card next to it gains a row. The canvas already watches its
-        // own box through a ResizeObserver, so growing the stage is all that
-        // is needed for the map to re-fit itself.
-        if (this._config.height === "fill") {
-            this.style.height = "100%";
-            this._card.style.height = "100%";
-            this._stage.style.flex = "1 1 0";
-            this._stage.style.minHeight = `${FILL_MIN_HEIGHT}px`;
-            this._stretchWrapper();
-        } else {
-            this._stage.style.height = `${Number(this._config.height) || DEFAULTS.height}px`;
-        }
-        this._picker.hidden = !this._config.show_picker;
-        // The delete button acts on the picker's selection, so it follows it.
-        // Set `show_picker: false` to hide both.
-        this._delBtn.hidden = !this._config.show_picker;
-        this._statsEl.hidden = !this._config.show_stats;
-        if (this._config.title !== undefined) {
-            root.querySelector(".title").textContent = this._config.title;
-        }
+        this._stage.style.height = `${Number(this._config.height) || DEFAULTS.height}px`;
+        this._menu.hidden = !this._config.show_picker;
 
-        this._picker.addEventListener("change", () => {
+        // The menu is as wide as its button, at least
+        this._menu.addEventListener("wa-show", () => {
+            this._menu.style.setProperty("--select-menu-width", `${this._picker.offsetWidth}px`);
+        });
+        this._menu.addEventListener("wa-select", (ev) => {
+            const name = ev.detail?.item?.value;
+            if (!name || name === this._selectedName) return;
             // A manual pick is pinned: list refreshes must not pull the user
             // off it onto a clean that is already running.
             this._userPicked = true;
-            this._selectSession(this._picker.value);
-            this._setPickerOpen(false);
+            this._selectSession(name);
         });
-        // The list opens on a press or a key; see _setPickerOpen
-        for (const type of ["pointerdown", "mousedown", "touchstart"]) {
-            this._picker.addEventListener(type, () => this._setPickerOpen(true), { passive: true });
-        }
-        this._picker.addEventListener("keydown", (ev) => {
-            if (ev.key === "Escape" || ev.key === "Enter" || ev.key === "Tab") this._setPickerOpen(false);
-            // An arrow alone changes the selection on a closed picker; Alt+arrow and Space open the list
-            else if (ev.key === " " || (ev.altKey && (ev.key === "ArrowDown" || ev.key === "ArrowUp"))) {
-                this._setPickerOpen(true);
-            }
+        // Delete on the keyboard deletes the session in focus
+        this._menu.addEventListener("keydown", (ev) => {
+            if (ev.key !== "Delete") return;
+            const item = ev.composedPath().find((node) => node.localName === "ha-dropdown-item");
+            if (!item?.value) return;
+            ev.preventDefault();
+            this._deleteSession(item.value);
         });
-        this._picker.addEventListener("blur", () => this._setPickerOpen(false));
-        this._delBtn.addEventListener("click", () => this._deleteSelected());
         this._playBtn.addEventListener("click", () => this._togglePlay());
         this._restartBtn.addEventListener("click", () => this._restart());
         this._speedBtn.addEventListener("click", () => this._cycleSpeed());
@@ -810,6 +980,23 @@ class OpenNeatoReplayCard extends HTMLElement {
         this._observeResize();
     }
 
+    // Lay the current picture over the canvas and fade it out, so a change of
+    // alignment during a live clean eases in instead of jumping
+    _fadeFrom() {
+        const fade = this._fadeCanvas;
+        const canvas = this._canvas;
+        if (!fade || !canvas || !canvas.width || !canvas.height) return;
+        fade.width = canvas.width;
+        fade.height = canvas.height;
+        fade.getContext("2d").drawImage(canvas, 0, 0);
+        fade.style.transition = "none";
+        fade.style.opacity = "1";
+        requestAnimationFrame(() => {
+            fade.style.transition = "opacity 0.4s ease";
+            fade.style.opacity = "0";
+        });
+    }
+
     _observeResize() {
         if (this._resizeObserver) this._resizeObserver.disconnect();
         this._resizeObserver = new ResizeObserver(() => {
@@ -817,6 +1004,10 @@ class OpenNeatoReplayCard extends HTMLElement {
             this._scheduleRender();
         });
         this._resizeObserver.observe(this._stage);
+        // A narrower header can mean the battery has to shorten, a wider one that it no longer does
+        if (this._headObserver) this._headObserver.disconnect();
+        this._headObserver = new ResizeObserver(() => this._renderStats());
+        this._headObserver.observe(this._head);
     }
 
     // Pan with drag, zoom with wheel/pinch, anchored on the pointer so the
@@ -944,18 +1135,24 @@ class OpenNeatoReplayCard extends HTMLElement {
         return (hass && hass.locale && hass.locale.language) || navigator.language;
     }
 
+    // Which robot the websocket is asked about. An entity or entry id written
+    // in the feature's own options wins over the entity the feature sits under,
+    // since the person chose it; with neither, the tile's robot is the one.
+    _target() {
+        if (this._config.entity_id) return { entity_id: this._config.entity_id };
+        if (this._config.entry_id) return { entry_id: this._config.entry_id };
+        const entityId = this._context?.entity_id;
+        return entityId ? { entity_id: entityId } : {};
+    }
+
     async _loadSessions() {
         if (this._sessionsLoading || !this._hass) return;
         this._sessionsLoading = true;
         this._lastListAt = Date.now();
         try {
-            // The robot is named by its vacuum entity; entry_id is the older
-            // way and still works. The answer carries the entry id, which the
-            // other commands use.
             const res = await this._hass.callWS({
                 type: "openneato/sessions",
-                ...(this._config.entity ? { entity_id: this._config.entity } : {}),
-                ...(this._config.entry_id ? { entry_id: this._config.entry_id } : {}),
+                ...this._target(),
             });
             this._entryId = res.entry_id;
             this._sessions = res.sessions || [];
@@ -969,7 +1166,7 @@ class OpenNeatoReplayCard extends HTMLElement {
         } catch (err) {
             if (this._session) {
                 // Whatever is on screen stays; the next tick tries again.
-                console.warn("openneato-replay-card: session list unavailable", err);
+                console.warn("openneato-card: session list unavailable", err);
             } else {
                 this._fail(`Could not list sessions\n${err.message || err}`);
             }
@@ -992,92 +1189,87 @@ class OpenNeatoReplayCard extends HTMLElement {
         const listed = (name) => Boolean(name) && this._sessions.some((s) => s.name === name);
         const live = this._sessions.find((s) => s.recording);
         const liveName = live ? live.name : null;
-        // A *new* clean lifts a manual pick. `session: latest` promises to
-        // switch to a clean as it starts; the pin only ever meant "leave me
-        // on what I chose while this one runs". Caveat: a list that briefly
+        if (this._pinnedSession) {
+            if (!listed(this._pinnedSession)) {
+                this._clearSelection();
+                this._fail(`Could not find session\n${this._pinnedSession}`);
+                return;
+            }
+            const pinnedRecording = this._sessions.find((s) => s.name === this._pinnedSession)?.recording;
+            if (this._selectedName !== this._pinnedSession || !this._session) {
+                await this._selectSession(this._pinnedSession);
+            } else if (this._live && !pinnedRecording) {
+                this._finalDue = true;
+                this._setLive(false);
+                await this._refreshLive();
+            }
+            return;
+        }
+        // A *new* clean lifts a manual pick: the card switches to a clean as it
+        // starts, and the pick only ever meant "leave me on what I chose while
+        // this one runs". Caveat: a list that briefly
         // drops the recording entry and gets it back would lift the pin
         // spuriously; rare, since the coordinator carries last-known history
         // forward instead of serving a gap.
         if (liveName && liveName !== this._seenLive) this._userPicked = false;
         this._seenLive = liveName;
 
-        const pinned = this._config.session && this._config.session !== "latest";
-        if (pinned && !listed(this._config.session)) {
-            // Say so rather than quietly showing some other session; the
-            // list keeps polling, so the card picks it up when the file
-            // appears.
-            if (this._loadState !== "missing") {
-                this._clearSelection();
-                this._selectedName = this._config.session;
-                this._loadState = "missing";
-                this._fail(`Session not found\n${this._config.session} is not on the robot.`);
-            }
-            this._syncDelete();
-            return;
-        }
         let wanted;
-        if (pinned) {
-            wanted = this._config.session;
-        } else if (liveName && !this._userPicked) {
+        if (liveName && !this._userPicked) {
             wanted = liveName;
-        } else if (listed(this._selectedName)) {
+        } else if (this._userPicked && listed(this._selectedName)) {
             wanted = this._selectedName;
         } else {
+            // The newest clean, unless one was picked by hand. A clean's file is
+            // renamed when it ends (compressed), so the one being followed can
+            // drop out of the list for a moment; the newest is still the one to show.
             wanted = this._sessions[0].name;
         }
 
         const nowRecording = Boolean(this._sessions.find((s) => s.name === wanted)?.recording);
-        const untried = this._loadState === null || this._loadState === "missing";
+        const untried = this._loadState === null;
         if (wanted !== this._selectedName || (!this._session && untried)) {
             await this._selectSession(wanted);
         } else if (this._live && !nowRecording) {
             // Finished. One more fetch brings the summary — quietly, so the
             // map, pan/zoom and playhead stay where they are — and live mode
-            // ends: the chip goes, delete comes back, polling stops.
+            // ends: the chip goes, its delete button comes back, polling stops.
             this._finalDue = true;
             this._setLive(false);
             await this._refreshLive();
         } else if (!this._live && nowRecording && this._loadState !== null) {
             this._setLive(true);
         }
-        this._syncDelete();
     }
 
-    async _deleteSelected() {
-        const name = this._selectedName;
-        if (!name || this._loading || this._live) return;
-
-        // Label the confirmation with what the user actually sees in the
-        // picker, not the raw filename.
-        const opt = this._picker.selectedOptions[0];
-        const label = opt ? opt.textContent : name;
-        if (!window.confirm(`Delete this cleaning session?\n\n${label}\n\nThis cannot be undone.`)) {
+    async _deleteSession(name) {
+        const row = (this._pickerRows || []).find((r) => r.name === name);
+        if (!row || row.recording || this._loading) return;
+        if (!window.confirm(`Delete this cleaning session?\n\n${row.full}\n\nThis cannot be undone.`)) {
             return;
         }
 
-        this._delBtn.disabled = true;
         try {
             await this._hass.callWS({
                 type: "openneato/delete_session",
                 name,
-                ...(this._entryId ? { entry_id: this._entryId } : {}),
+                ...this._target(),
             });
         } catch (err) {
             if (err && err.code === "recording") {
                 // It started recording between two list ticks. Refresh the
-                // list now; the button follows the live flag from there.
+                // list now; its line loses the delete button from there.
                 this._flash("Still recording — try again when the clean finishes");
                 this._lastListAt = 0;
                 this._loadSessions();
             } else {
                 this._flash(`Could not delete: ${err.message || err}`);
-                this._syncDelete();
             }
             return;
         }
 
-        // Fall back to whichever session is newest once this one is gone.
-        this._clearSelection();
+        // Once the session on screen is gone, the newest one takes its place
+        if (name === this._selectedName) this._clearSelection();
         this._lastListAt = 0;
         await this._loadSessions();
     }
@@ -1098,64 +1290,60 @@ class OpenNeatoReplayCard extends HTMLElement {
         return label;
     }
 
-    // Rebuilt only when the labels change. Rewriting the options on every
-    // refresh closed the dropdown under the user and, for a moment, pointed
-    // the delete confirmation at the wrong session.
+    // Rebuilt only when the lines change, so a refresh does not close the
+    // menu under the user.
     _renderPicker() {
-        if (!this._picker) return;
+        if (!this._menu) return;
         const rows = this._sessions.map((s) => ({
             name: s.name,
             full: this._sessionLabel(s),
             date: this._sessionDate(s),
+            recording: Boolean(s.recording),
         }));
-        const sig = `${rows.map((r) => `${r.name}|${r.full}`).join("\n")}|${this._units}`;
+        const sig = `${rows.map((r) => `${r.name}|${r.full}|${r.recording}`).join("\n")}|${this._units}`;
         if (sig === this._pickerSig) return;
         this._pickerSig = sig;
         this._pickerRows = rows;
-        this._picker.replaceChildren(
-            ...rows.map((r) => {
-                const option = document.createElement("option");
-                option.value = r.name;
-                return option;
-            }),
-        );
-        if (this._selectedName) this._picker.value = this._selectedName;
-        this._applyPickerText();
+        this._menu.replaceChildren(this._picker, ...rows.map((r) => this._pickerItem(r)));
+        this._showPicked();
     }
 
-    // Closed, the picker shows only the date and time of the session on screen
-    // (the rest of the line is the mode and area, which the stats row and the
-    // open list already give). Open, every session shows its full line.
-    //
-    // A <select> has no event for its list opening or closing, so this follows
-    // the events that lead there. Opening is certain (the press or key comes
-    // first); closing without a choice, or by choosing the session already
-    // selected, fires no event, so the full lines stay until the picker loses
-    // focus. The width is held while the list is open so the header does not
-    // jump when the text grows.
-    _setPickerOpen(open) {
-        if (open === this._pickerOpen) return;
-        this._pickerOpen = open;
-        // Held at the width it has now: the row is full, so without this the picker
-        // would also shrink back to fit once the text is longer
-        const hold = open ? `${this._picker.getBoundingClientRect().width}px` : "";
-        this._picker.style.width = hold;
-        this._picker.style.flexShrink = open ? "0" : "";
-        this._applyPickerText();
+    // One session's line: the date, mode and area, and a delete button once
+    // the clean has finished
+    _pickerItem(r) {
+        const item = document.createElement("ha-dropdown-item");
+        item.value = r.name;
+        item.append(r.full);
+        if (!r.recording) {
+            const del = document.createElement("ha-icon-button");
+            del.slot = "details";
+            del.path = MDI_DELETE;
+            del.label = "Delete this session";
+            del.addEventListener("click", (ev) => {
+                // The button deletes; it does not also choose the session
+                ev.stopPropagation();
+                this._deleteSession(r.name);
+            });
+            item.append(del);
+        }
+        return item;
     }
 
-    _applyPickerText() {
-        const options = this._picker.options;
-        (this._pickerRows || []).forEach((r, i) => {
-            if (options[i]) options[i].textContent = this._pickerOpen ? r.full : r.date;
-        });
+    // The menu's button shows the date of the session on screen, and its line is marked
+    _showPicked() {
+        if (!this._menu) return;
+        const row = (this._pickerRows || []).find((r) => r.name === this._selectedName);
+        this._pickerText.textContent = row ? row.date : "";
+        for (const item of this._menu.querySelectorAll("ha-dropdown-item")) {
+            item.selected = item.value === this._selectedName;
+        }
     }
 
     _fetchSession(name) {
         return this._hass.callWS({
             type: "openneato/session",
             name,
-            ...(this._entryId ? { entry_id: this._entryId } : {}),
+            ...this._target(),
         });
     }
 
@@ -1164,7 +1352,7 @@ class OpenNeatoReplayCard extends HTMLElement {
     async _selectSession(name) {
         if (!name || this._loading) return;
         this._selectedName = name;
-        this._picker.value = name;
+        this._showPicked();
         this._loading = true;
         this._loadState = null;
         this._finalDue = false;
@@ -1210,7 +1398,7 @@ class OpenNeatoReplayCard extends HTMLElement {
             if (name !== this._selectedName) return;
             if (this._session) {
                 // Keep what is on screen; the chip turns stale after a minute.
-                console.warn("openneato-replay-card: live refresh failed", err);
+                console.warn("openneato-card: live refresh failed", err);
             } else {
                 this._sessionError(err);
             }
@@ -1234,6 +1422,13 @@ class OpenNeatoReplayCard extends HTMLElement {
         // The session payload says whether it is still recording when the
         // backend is new enough; otherwise the list's flag stands.
         if (typeof raw.recording === "boolean" && !this._finalDue) this._setLive(raw.recording);
+        // Still drawn with the last clean's alignment (or none, where there is a map to fit)
+        // How the track is lined up, for the alignment badge, and a fade rather
+        // than a jump when that changes during a live clean
+        this._alignWord = ALIGNMENT_WORDS[raw.alignment_source] ?? null;
+        const alignKey = JSON.stringify(raw.alignment ?? null);
+        if (!reset && this._session && this._live && alignKey !== this._alignKey) this._fadeFrom();
+        this._alignKey = alignKey;
         // Layers rebuild from the new arrays on the next frame. The view
         // transform is left alone, so pan and zoom survive a refresh.
         this._cov.sig = "";
@@ -1259,7 +1454,6 @@ class OpenNeatoReplayCard extends HTMLElement {
             // The user scrubbed back: leave the playhead where they put it.
             this._seek(Math.min(this._time, session.duration));
         }
-        this._syncDelete();
         this._renderStats();
         this._renderChip();
         this._dirty = true;
@@ -1281,7 +1475,6 @@ class OpenNeatoReplayCard extends HTMLElement {
             this._loadState = "error";
             this._fail(`Could not load this session\n${msg}`);
         }
-        this._syncDelete();
         this._renderChip();
     }
 
@@ -1312,18 +1505,25 @@ class OpenNeatoReplayCard extends HTMLElement {
             this._floorplanBounds = this._planContentBounds(img, fp);
         } catch (err) {
             // A missing plan is cosmetic — fall back to the plain background.
-            console.warn("openneato-replay-card: floorplan unavailable", err);
+            console.warn("openneato-card: floorplan unavailable", err);
             this._floorplanImg = null;
         }
     }
 
-    _renderStats() {
-        if (!this._statsEl || !this._config.show_stats || !this._session) return;
+    // `compact`: the row did not fit, so the battery shows only what the clean used
+    _renderStats(compact = false) {
+        if (!this._statsEl || !this._session) return;
+        const show = (key) => this._config[key] !== false;
         const s = this._session.summary || {};
         const info = this._session.session || {};
         const units = this._units;
         const locale = this._locale();
         const bits = [];
+        const figure = (label, value, hint = label) => (this._config.hide_labels
+            ? `<span title="${hint}" aria-label="${hint} ${value}"><b>${value}</b></span>`
+            : `<span${hint === label ? "" : ` title="${hint}"`}>${label} <b>${value}</b></span>`);
+        const used = (start, end) => figure("Battery", `Δ${start - end}%`, "Battery used");
+        let shortens = false;
         // Date, mode and area are all in the picker's own label
         // ("19/08 11:32 — House Clean · 27.3 m²"), so repeating them beside
         // it just spends the row saying the same thing twice. They come back
@@ -1331,30 +1531,63 @@ class OpenNeatoReplayCard extends HTMLElement {
         if (!this._config.show_picker) {
             if (info.time) bits.push(`<span><b>${formatDate(info.time)}</b></span>`);
             bits.push(`<span>${modeLabel(info.mode)}</span>`);
-            if (!this._live && s.areaCovered) {
-                bits.push(`<span>Area <b>${formatArea(s.areaCovered, units, locale)}</b></span>`);
-            }
         }
         if (this._live) {
-            // Only what is known while recording — the summary (area,
-            // distance, end battery) is written when the clean ends.
+            // Only what is known while recording: the summary (area,
+            // distance, end battery) is written when the clean ends, so the
+            // distance is worked out from the path so far.
             const since = (Date.now() - this._liveSince) / 1000;
-            bits.push(`<span>Duration <b>${formatClock(this._session.duration + since)}</b></span>`);
-            if (info.battery !== undefined) bits.push(`<span>Battery <b>${info.battery}%</b></span>`);
-            const recharges = this._session.recharges.length;
-            if (recharges > 0) bits.push(`<span>Recharges <b>${recharges}</b></span>`);
+            // In the same order as after the clean: area, distance, duration,
+            // battery. The area so far is the cleaned cells times a cell's area.
+            if (show("show_area") && this._session.cellCount > 0) {
+                const cell = this._session.cellSize || DEFAULT_CELL_M;
+                bits.push(figure("Area", formatArea(this._session.cellCount * cell * cell, units, locale)));
+            }
+            const travelled = this._session.pathLength();
+            if (travelled > 0 && show("show_distance")) {
+                bits.push(figure("Distance", formatDistance(travelled, units, locale)));
+            }
+            if (show("show_duration")) {
+                bits.push(figure("Duration", formatClock(this._session.duration + since)));
+            }
+            if (show("show_battery")) {
+                const now = this._batteryNow();
+                if (info.battery !== undefined && now !== null) shortens = true;
+                if (compact && shortens) bits.push(used(info.battery, now));
+                else if (info.battery !== undefined) bits.push(figure("Battery", `${info.battery}%`));
+                const recharges = this._session.recharges.length;
+                if (recharges > 0) bits.push(figure("Recharges", recharges));
+            }
         } else {
-            if (s.distanceTraveled) {
-                bits.push(`<span>Distance <b>${formatDistance(s.distanceTraveled, units, locale)}</b></span>`);
+            if (s.areaCovered && show("show_area")) {
+                bits.push(figure("Area", formatArea(s.areaCovered, units, locale)));
+            }
+            if (s.distanceTraveled && show("show_distance")) {
+                bits.push(figure("Distance", formatDistance(s.distanceTraveled, units, locale)));
             }
             const duration = s.duration || this._session.duration;
-            if (duration) bits.push(`<span>Duration <b>${formatClock(duration)}</b></span>`);
-            if (s.batteryStart !== undefined && s.batteryEnd !== undefined) {
-                bits.push(`<span>Battery <b>${s.batteryStart}% → ${s.batteryEnd}%</b></span>`);
+            if (duration && show("show_duration")) bits.push(figure("Duration", formatClock(duration)));
+            if (show("show_battery")) {
+                if (s.batteryStart !== undefined && s.batteryEnd !== undefined) {
+                    shortens = true;
+                    bits.push(compact ? used(s.batteryStart, s.batteryEnd) : figure("Battery", `${s.batteryStart}% → ${s.batteryEnd}%`));
+                }
+                if (s.recharges) bits.push(figure("Recharges", s.recharges));
             }
-            if (s.recharges) bits.push(`<span>Recharges <b>${s.recharges}</b></span>`);
         }
         this._statsEl.innerHTML = bits.join("");
+        const overflows = this._statsEl.scrollWidth > this._statsEl.clientWidth + 1;
+        if (!compact && shortens && overflows) this._renderStats(true);
+    }
+
+    // The robot's battery level now, from its battery sensor
+    _batteryNow() {
+        const id = this._context?.entity_id;
+        const hass = this._hass;
+        if (!id || !hass) return null;
+        const sensor = siblings(hass, id, ["sensor"]).find((e) => hass.states[e.entity_id].attributes.device_class === "battery");
+        const level = Number(sensor ? hass.states[sensor.entity_id].state : hass.states[id]?.attributes?.battery_level);
+        return Number.isFinite(level) ? Math.round(level) : null;
     }
 
     /* ---- live state ---- */
@@ -1372,16 +1605,7 @@ class OpenNeatoReplayCard extends HTMLElement {
                 this._quarterLock = null;
             }
         }
-        this._syncDelete();
         this._renderChip();
-    }
-
-    _syncDelete() {
-        if (!this._delBtn) return;
-        this._delBtn.disabled = !this._selectedName || this._live;
-        const title = this._live ? "Can't delete a session that is still recording" : "Delete this session";
-        this._delBtn.title = title;
-        this._delBtn.setAttribute("aria-label", title);
     }
 
     // The one live indicator, in the controls row. Shown only while the
@@ -1390,7 +1614,15 @@ class OpenNeatoReplayCard extends HTMLElement {
         const chip = this._liveBtn;
         if (!chip) return;
         const show = this._live && Boolean(this._session);
-        chip.hidden = !show;
+        chip.hidden = !show || !this._config.live_badge_show;
+        if (this._methodEl) {
+            const word = show && this._config.alignment_badge_show ? this._alignWord : null;
+            this._methodEl.hidden = !word;
+            if (word) {
+                this._methodEl.textContent = word;
+                this._methodEl.title = ALIGNMENT_TITLES[word];
+            }
+        }
         if (!show) {
             this._chipKey = null;
             return;
@@ -1503,9 +1735,28 @@ class OpenNeatoReplayCard extends HTMLElement {
     // Step to the next rate, wrapping around. A configured speed that isn't
     // one of the presets still works — the cycle picks up from the nearest
     // step above it.
+    // The speed picked with the button on the map is remembered in this browser,
+    // so it is not an option of the card
+    _storedSpeed(seed = DEFAULTS.speed) {
+        try {
+            const stored = window.localStorage.getItem(SPEED_STORAGE_KEY);
+            if (stored === null) return Number(seed) > 0 ? Number(seed) : DEFAULTS.speed;
+            const value = Number(stored);
+            if (SPEED_STEPS.includes(value)) return value;
+        } catch (err) {
+            // Storage can be unavailable (private windows); the default stands
+        }
+        return Number(seed) > 0 ? Number(seed) : DEFAULTS.speed;
+    }
+
     _cycleSpeed() {
         const next = SPEED_STEPS.find((s) => s > this._speed);
         this._speed = next === undefined ? SPEED_STEPS[0] : next;
+        try {
+            window.localStorage.setItem(SPEED_STORAGE_KEY, String(this._speed));
+        } catch (err) {
+            // Storage can be unavailable (private windows); the speed still changes
+        }
         this._showSpeed();
     }
 
@@ -1591,7 +1842,7 @@ class OpenNeatoReplayCard extends HTMLElement {
     /* ---- rendering (port of helpers.ts::renderMap) ---- */
 
     _themeIsDark() {
-        const bg = getComputedStyle(this._card || this).backgroundColor || "";
+        const bg = getComputedStyle(this._stage || this).backgroundColor || "";
         const m = bg.match(/\d+/g);
         if (!m || m.length < 3) return true;
         // Rec. 601 luma — good enough to pick the light/dark colour set.
@@ -1620,7 +1871,7 @@ class OpenNeatoReplayCard extends HTMLElement {
             cx.drawImage(img, 0, 0);
             data = cx.getImageData(0, 0, c.width, c.height).data;
         } catch (err) {
-            console.warn("openneato-replay-card: cannot inspect floorplan", err);
+            console.warn("openneato-card: cannot inspect floorplan", err);
             return null;
         }
 
@@ -1635,6 +1886,10 @@ class OpenNeatoReplayCard extends HTMLElement {
             return (v[1] + v[2]) / 2;
         });
         const TOL = 24;
+        // The integration's plan is black walls on a transparent background,
+        // and a transparent pixel reads as black too: there, anything that is
+        // not transparent is the plan.
+        const clearCorners = corners.every((o) => data[o + 3] < 8);
 
         let x0 = W;
         let y0 = H;
@@ -1646,6 +1901,7 @@ class OpenNeatoReplayCard extends HTMLElement {
                 const o = at(x, y);
                 if (data[o + 3] < 8) continue; // transparent margin, if any
                 if (
+                    !clearCorners &&
                     Math.abs(data[o] - bg[0]) <= TOL &&
                     Math.abs(data[o + 1] - bg[1]) <= TOL &&
                     Math.abs(data[o + 2] - bg[2]) <= TOL
@@ -1749,13 +2005,10 @@ class OpenNeatoReplayCard extends HTMLElement {
     // and the map always comes out the same way up.
     // The upright angle alone, before the quarter turn below is folded in.
     _baseRotationDeg() {
-        const configured = this._config.rotation;
-        if (configured === "auto" || configured === undefined) {
-            const fp = this._floorplan;
-            if (fp && Number.isFinite(fp.viewRotation)) return fp.viewRotation;
-            return configured === "auto" ? 0 : Number(DEFAULTS.rotation) || 0;
-        }
-        return Number(configured) || 0;
+        const degrees = this._config.rotation_degrees || 0;
+        if (!this._config.straighten) return degrees;
+        const fp = this._floorplan;
+        return (fp && Number.isFinite(fp.viewRotation) ? fp.viewRotation : 0) + degrees;
     }
 
     _rotationDeg() {
@@ -1782,8 +2035,7 @@ class OpenNeatoReplayCard extends HTMLElement {
     // canvas size, so a real resize still re-fits) and taken again, once,
     // when the recording completes.
     _updateAutoQuarter(displayW, displayH, bounds) {
-        const configured = this._config.rotation;
-        if (configured !== "auto" && configured !== undefined) {
+        if (!this._config.straighten) {
             this._autoQuarter = 0;
             return;
         }
@@ -2572,6 +2824,7 @@ class OpenNeatoReplayCard extends HTMLElement {
         }
         const played = duration > 0 ? (this._time / duration) * 100 : 0;
         this._scrub.style.setProperty("--played", `${played}%`);
+        this._scrubWrap.style.setProperty("--frac", String(played / 100));
         // Keyed on the duration as well: a live session grows, and the
         // recharge marks have to move with it.
         const trackKey = `${this._session.name}|${duration}`;
@@ -2611,24 +2864,1066 @@ class OpenNeatoReplayCard extends HTMLElement {
     }
 }
 
-// A second load (for example a stale page script next to the dashboard resource)
-// must not throw, which would stop the card from showing at all.
-if (!customElements.get("openneato-replay-card")) {
-    customElements.define("openneato-replay-card", OpenNeatoReplayCard);
+/* ── what the robot's device offers ─────────────────────────────────── */
+
+const INTEGRATION = "openneato";
+const CARD_TYPE = "openneato-card";
+const REPLAY_TYPE = "openneato-replay";
+const CONTROLS_TYPE = "openneato-controls";
+const SUCTION_TYPE = "openneato-suction";
+const CONFIGURATION_TYPE = "openneato-configuration";
+const FEATURE_EDITOR_TYPE = "openneato-feature-editor";
+const CARD_EDITOR_TYPE = "openneato-card-editor";
+const TILE_EDITOR_TYPE = "openneato-tile-card-editor";
+
+const fire = (el, type, detail) => el.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
+const domainOf = (entityId) => String(entityId).split(".")[0];
+const capitalize = (text) => String(text).charAt(0).toUpperCase() + String(text).slice(1).replace(/_/g, " ");
+
+// A robot is a vacuum of this integration
+const isOpenNeato = (hass, entityId) =>
+    Boolean(entityId) && domainOf(entityId) === "vacuum" && hass?.entities?.[entityId]?.platform === INTEGRATION;
+
+function robots(hass) {
+    return Object.values(hass?.entities ?? {})
+        .filter((e) => e.platform === INTEGRATION && domainOf(e.entity_id) === "vacuum")
+        .map((e) => e.entity_id)
+        .sort();
+}
+
+// The robot set up by a config entry: its device lists the entry. Older cards
+// named a robot this way (entry_id), before the card took an entity.
+function robotOfEntry(hass, entryId) {
+    if (!entryId) return undefined;
+    return robots(hass).find((id) => {
+        const device = hass.devices?.[hass.entities?.[id]?.device_id];
+        return Array.isArray(device?.config_entries) && device.config_entries.includes(entryId);
+    });
+}
+
+// The other entities of the robot's device, in the domains given
+function siblings(hass, entityId, domains) {
+    const deviceId = hass?.entities?.[entityId]?.device_id;
+    if (!deviceId) return [];
+    return Object.values(hass.entities).filter(
+        (e) => e.device_id === deviceId && e.entity_id !== entityId && domains.includes(domainOf(e.entity_id)) && hass.states[e.entity_id],
+    );
+}
+
+// The name an entity goes by on its own device ("Eco mode", not "Alfred Eco mode")
+function shortName(hass, entityId) {
+    const friendly = hass.states[entityId]?.attributes?.friendly_name ?? entityId;
+    const device = hass.devices?.[hass.entities?.[entityId]?.device_id];
+    const deviceName = device?.name_by_user ?? device?.name;
+    return deviceName && friendly.startsWith(`${deviceName} `) ? friendly.slice(deviceName.length + 1) : friendly;
+}
+
+// What an entity is called in the options: its translation key, which every
+// language shares, else the end of its entity id
+const keyOf = (hass, entityId) => hass.entities?.[entityId]?.translation_key || entityId.split(".")[1];
+
+/* ── state content: every sensor of the robot ────────────────────────── */
+
+// The tile card shows "State content" from the attributes of its entity. The
+// robot's sensors are other entities, so they are handed to the tile card as
+// attributes of the robot (already formatted, in the language and units of
+// Home Assistant), and the two raw states the tile has no use for are left out.
+const DEFAULT_STATE_CONTENT = ["state", "charging", "battery"];
+const HIDDEN_ATTRIBUTES = ["robot_state", "ui_state"];
+// Home Assistant's State content picker hides an attribute called battery_level
+// (it keeps its own battery attributes out of the list), so the sensor goes by
+// another name there.
+const ATTRIBUTE_ALIASES = { battery_level: "battery" };
+const aliased = (key) => ATTRIBUTE_ALIASES[key] ?? key;
+
+function readouts(hass, entityId) {
+    return siblings(hass, entityId, ["sensor", "binary_sensor"]).map((e) => ({
+        key: aliased(keyOf(hass, e.entity_id)), entityId: e.entity_id,
+    }));
+}
+
+// Reused while nothing it is made of has changed, so the tile card (which
+// compares the state object it is given) does not draw on every state change
+// in Home Assistant.
+function withReadouts(hass, entityId, memo, everything = false) {
+    const stateObj = hass?.states?.[entityId];
+    if (!stateObj) return hass;
+    const reads = readouts(hass, entityId);
+    const parts = [stateObj, hass.formatEntityState, hass.formatEntityAttributeName, ...reads.map((r) => hass.states[r.entityId])];
+    if (!(memo.parts && memo.parts.length === parts.length && parts.every((p, i) => p === memo.parts[i]))) {
+        const attributes = { ...stateObj.attributes };
+        for (const name of HIDDEN_ATTRIBUTES) delete attributes[name];
+        for (const r of reads) {
+            if (r.key in attributes) continue;
+            const s = hass.states[r.entityId];
+            // Nothing to say (an error message with no error): left out of the line
+            if (!everything && ["", "unknown", "unavailable"].includes(s.state)) continue;
+            attributes[r.key] = hass.formatEntityState ? hass.formatEntityState(s) : s.state;
+        }
+        // The picker names an attribute by what the device calls the sensor ("WiFi signal")
+        const names = Object.fromEntries(reads.map((r) => [r.key, shortName(hass, r.entityId)]));
+        const original = hass.formatEntityAttributeName;
+        memo.formatName = (s, attribute) =>
+            s?.entity_id === entityId && attribute in names ? names[attribute] : original ? original(s, attribute) : capitalize(attribute);
+        memo.parts = parts;
+        memo.state = { ...stateObj, attributes };
+    }
+    return { ...hass, formatEntityAttributeName: memo.formatName, states: { ...hass.states, [entityId]: memo.state } };
+}
+
+/* ── controls, suction and configuration ─────────────────────────────── */
+
+// The vacuum's own commands (Home Assistant's vacuum features, as bits)
+const CONTROLS = [
+    { key: "start", label: "Start", icon: "mdi:play", service: "vacuum.start", feature: 8192 },
+    { key: "pause", label: "Pause", icon: "mdi:pause", service: "vacuum.pause", feature: 4 },
+    { key: "stop", label: "Stop", icon: "mdi:stop", service: "vacuum.stop", feature: 8 },
+    { key: "dock", label: "Dock", icon: "mdi:home-import-outline", service: "vacuum.return_to_base", feature: 16 },
+    { key: "spot", label: "Spot clean", icon: "mdi:target", service: "vacuum.clean_spot", feature: 1024 },
+    { key: "locate", label: "Locate", icon: "mdi:map-marker", service: "vacuum.locate", feature: 512 },
+];
+const FAN_SPEED_FEATURE = 32;
+const FAN_ICONS = { eco: "mdi:leaf", normal: "mdi:fan", intense: "mdi:fan-plus" };
+
+const supportedBits = (hass, entityId) => hass.states[entityId]?.attributes?.supported_features ?? 0;
+const controlsOf = (hass, entityId) => CONTROLS.filter((c) => (supportedBits(hass, entityId) & c.feature) !== 0);
+const fanSpeedsOf = (hass, entityId) =>
+    (supportedBits(hass, entityId) & FAN_SPEED_FEATURE) !== 0 ? hass.states[entityId]?.attributes?.fan_speed_list ?? [] : [];
+
+// The robot's settings: its switches and choices. Left out: the schedule's days
+// and times (they belong to the schedule), and Eco mode and Intense clean, which
+// are the vacuum's suction under another name (the Suction feature sets them).
+const NOT_SETTINGS = ["eco_mode", "intense_clean"];
+function configurables(hass, entityId) {
+    return siblings(hass, entityId, ["switch", "select"])
+        .map((e) => ({ key: keyOf(hass, e.entity_id), entityId: e.entity_id, label: shortName(hass, e.entity_id) }))
+        .filter((c) => !c.key.startsWith("schedule_") && !NOT_SETTINGS.includes(c.key))
+        .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+// A call to Home Assistant's service, with its own notice if it fails
+function performAction(host, service, entityId, data) {
+    const [domain, name] = service.split(".");
+    Promise.resolve(host._hass.callService(domain, name, data ?? {}, { entity_id: entityId })).catch((err) => {
+        fire(host, "hass-notification", { message: `${service}: ${err?.message ?? err}` });
+    });
+}
+
+const FEATURE_CSS = `
+    :host { display: block; }
+    .row { display: flex; flex-wrap: wrap; gap: var(--feature-button-spacing, 12px); }
+    .key {
+        flex: 1 1 0; min-width: 48px; height: var(--feature-height, 42px); padding: 0 8px; border: 0; cursor: pointer;
+        border-radius: var(--feature-border-radius, 12px); font: inherit; --mdc-icon-size: 20px;
+        background: var(--secondary-background-color); color: var(--primary-text-color);
+        display: flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;
+    }
+    .key.wide { flex: 1 1 40%; }
+    /* As Home Assistant's own tile features set up its select menu */
+    .choice {
+        flex: 1 1 40%; min-width: 0; box-sizing: border-box; display: block;
+        --control-select-menu-height: var(--feature-height);
+        --control-select-menu-border-radius: var(--feature-border-radius);
+        --control-select-menu-focus-color: var(--feature-color);
+        line-height: var(--ha-line-height-condensed);
+    }
+    .key[aria-pressed="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+    .key:disabled { opacity: .5; cursor: default; }
+    span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+`;
+
+// A row of buttons. A subclass lists them in _buttons(): { key, label, icon, text,
+// pressed, disabled, wide, action } or { key, label, options, value, choose }.
+class OpenNeatoFeature extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: "open" });
+        this.shadowRoot.innerHTML = `<style>${FEATURE_CSS}</style><div class="row" role="group"></div>`;
+        this._row = this.shadowRoot.querySelector(".row");
+        // A press on a control is not a tap on whatever card holds it
+        for (const type of ["click", "touchstart", "touchend", "mousedown", "mouseup"]) {
+            this.addEventListener(type, (ev) => ev.stopPropagation());
+        }
+    }
+
+    static getConfigElement() {
+        return document.createElement(FEATURE_EDITOR_TYPE);
+    }
+
+    setConfig(config) {
+        if (!config) throw new Error("Invalid configuration");
+        this._config = config;
+        this._render();
+    }
+
+    set hass(hass) {
+        this._hass = hass;
+        this._render();
+    }
+
+    set context(context) {
+        this._context = context;
+        this._render();
+    }
+
+    get _entityId() {
+        return this._context?.entity_id;
+    }
+
+    _render() {
+        if (!this._hass || !this._config || !this._entityId) return;
+        const buttons = this._buttons();
+        const key = JSON.stringify(buttons.map(({ action, choose, ...b }) => b));
+        if (key === this._key) return;
+        this._key = key;
+        this._row.setAttribute("aria-label", this.constructor.label);
+        this._row.replaceChildren(...buttons.map((b) => this._button(b)));
+    }
+
+    _button(b) {
+        if (b.options) {
+            // Home Assistant's own select menu, as its select features use it. It is
+            // always loaded with the tile card, which imports every tile feature.
+            const menu = document.createElement("ha-control-select-menu");
+            menu.dataset.key = b.key;
+            menu.className = "choice";
+            menu.setAttribute("show-arrow", "");
+            menu.label = b.label;
+            menu.options = b.options;
+            menu.value = b.value;
+            menu.addEventListener("wa-select", (ev) => {
+                const value = ev.detail?.item?.value;
+                if (value !== undefined && value !== b.value) b.choose(value);
+            });
+            return menu;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = b.wide ? "key wide" : "key";
+        button.dataset.key = b.key;
+        button.title = b.label;
+        button.setAttribute("aria-label", b.label);
+        if (b.pressed !== undefined) button.setAttribute("aria-pressed", String(!!b.pressed));
+        button.disabled = !!b.disabled;
+        if (b.icon) {
+            const icon = document.createElement("ha-icon");
+            icon.setAttribute("icon", b.icon);
+            button.append(icon);
+        }
+        if (b.text) {
+            const span = document.createElement("span");
+            span.textContent = b.text;
+            button.append(span);
+        }
+        button.addEventListener("click", () => b.action());
+        return button;
+    }
+}
+
+class OpenNeatoControls extends OpenNeatoFeature {
+    static label = "OpenNeato controls";
+
+    static getStubConfig(hass, context) {
+        const available = controlsOf(hass, context?.entity_id).map((c) => c.key);
+        return { type: `custom:${CONTROLS_TYPE}`, items: ["start", "pause", "dock"].filter((k) => available.includes(k)) };
+    }
+
+    _buttons() {
+        const id = this._entityId;
+        const available = controlsOf(this._hass, id);
+        const items = Array.isArray(this._config.items) ? this._config.items : [];
+        return items
+            .map((key) => available.find((c) => c.key === key))
+            .filter(Boolean)
+            .map((c) => ({ key: c.key, label: c.label, icon: c.icon, action: () => performAction(this, c.service, id) }));
+    }
+}
+
+class OpenNeatoSuction extends OpenNeatoFeature {
+    static label = "OpenNeato suction";
+
+    static getStubConfig() {
+        return { type: `custom:${SUCTION_TYPE}` };
+    }
+
+    _buttons() {
+        const id = this._entityId;
+        const attributes = this._hass.states[id]?.attributes ?? {};
+        const available = fanSpeedsOf(this._hass, id);
+        const speeds = Array.isArray(this._config.fan_speeds) ? this._config.fan_speeds.filter((s) => available.includes(s)) : available;
+        return speeds.map((speed) => ({
+            key: speed, label: capitalize(speed), icon: FAN_ICONS[speed] ?? "mdi:fan", pressed: attributes.fan_speed === speed,
+            action: () => performAction(this, "vacuum.set_fan_speed", id, { fan_speed: speed }),
+        }));
+    }
+}
+
+class OpenNeatoConfiguration extends OpenNeatoFeature {
+    static label = "OpenNeato configuration";
+
+    static getStubConfig() {
+        return { type: `custom:${CONFIGURATION_TYPE}`, items: [] };
+    }
+
+    _buttons() {
+        const hass = this._hass;
+        const items = Array.isArray(this._config.items) ? this._config.items : [];
+        const available = configurables(hass, this._entityId);
+        const buttons = [];
+        for (const key of items) {
+            const item = available.find((c) => c.key === key);
+            if (!item) continue;
+            const stateObj = hass.states[item.entityId];
+            if (domainOf(item.entityId) === "select") {
+                buttons.push({
+                    key, label: item.label, options: (stateObj.attributes.options ?? []).map((o) => ({ value: o, label: capitalize(o) })),
+                    value: stateObj.state, choose: (value) => performAction(this, "select.select_option", item.entityId, { option: value }),
+                });
+            } else {
+                const on = stateObj.state === "on";
+                buttons.push({
+                    key, label: item.label, text: item.label, wide: true, pressed: on, disabled: stateObj.state === "unavailable",
+                    action: () => performAction(this, `switch.${on ? "turn_off" : "turn_on"}`, item.entityId),
+                });
+            }
+        }
+        return buttons;
+    }
+}
+
+/* ── the card ────────────────────────────────────────────────────────── */
+
+// The card's only option of its own. Everything else is the tile card's.
+const OWN_KEYS = ["expanded", "show_chevron"];
+const TOGGLE_ACTION = { action: "fire-dom-event", openneato_card: "toggle" };
+
+// The tile card's own configuration. A tap on the tile shows or hides the
+// features, which are left out while the card is closed.
+function tileConfigOf(config, entity, open) {
+    const tile = { ...config, type: "tile", entity, tap_action: TOGGLE_ACTION };
+    for (const key of OWN_KEYS) delete tile[key];
+    tile.state_content = config.state_content ?? DEFAULT_STATE_CONTENT;
+    if (!open) tile.features = [];
+    return tile;
+}
+
+// The nearest element above that scrolls (through shadow roots), or null for the page
+function scrollParent(el) {
+    let node = el;
+    while (node) {
+        node = node.parentElement || node.getRootNode?.()?.host || null;
+        if (!node || node === document.documentElement) return null;
+        const overflow = getComputedStyle(node).overflowY;
+        if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight) return node;
+    }
+    return null;
+}
+
+class OpenNeatoCard extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: "open" });
+        this.shadowRoot.innerHTML = `
+            <style>
+                :host { display: block; }
+                .frame { position: relative; }
+                .notice { padding: 16px; color: var(--secondary-text-color); }
+                .chevron {
+                    position: absolute; top: 12px; right: 12px; z-index: 1; padding: 8px; border: 0; cursor: pointer;
+                    display: inline-flex; border-radius: 50%; background: none; color: var(--primary-text-color); line-height: 0;
+                }
+                .chevron:hover { background: var(--secondary-background-color); }
+                .chevron svg { width: 20px; height: 20px; fill: currentColor; transition: transform 150ms ease-in-out; }
+                .chevron[aria-expanded="true"] svg { transform: rotate(180deg); }
+                @media (prefers-reduced-motion: reduce) { .chevron svg { transition: none; } }
+                [hidden] { display: none !important; }
+            </style>
+            <div class="frame">
+                <div class="tilewrap"></div>
+                <div class="notice" hidden>Choose an OpenNeato vacuum in this card's options.</div>
+                <button class="chevron" type="button" aria-expanded="false" hidden>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                </button>
+            </div>`;
+        this._frame = this.shadowRoot.querySelector(".frame");
+        this._tileWrap = this.shadowRoot.querySelector(".tilewrap");
+        this._notice = this.shadowRoot.querySelector(".notice");
+        this._chevron = this.shadowRoot.querySelector(".chevron");
+        this._hass = null;
+        this._config = null;
+        this._open = false;
+        this._tile = null;
+        this._memo = {};
+        // A tap on the tile card, or on the chevron, shows or hides the features
+        this._frame.addEventListener("ll-custom", (ev) => {
+            if (ev.detail?.openneato_card !== "toggle") return;
+            ev.stopPropagation();
+            this._setOpen(!this._open);
+        });
+        this._chevron.addEventListener("click", () => this._setOpen(!this._open));
+    }
+
+    static getConfigElement() {
+        return document.createElement(CARD_EDITOR_TYPE);
+    }
+
+    static getStubConfig(hass) {
+        const entity = robots(hass)[0];
+        return {
+            type: `custom:${CARD_TYPE}`,
+            ...(entity ? { entity } : {}),
+            state_content: DEFAULT_STATE_CONTENT,
+            features: [{ type: `custom:${REPLAY_TYPE}` }, OpenNeatoControls.getStubConfig(hass, { entity_id: entity })],
+        };
+    }
+
+    setConfig(config) {
+        if (!config) throw new Error("Invalid configuration");
+        this._config = config;
+        this._open = this._storedOpen() ?? config.expanded === true;
+        this._apply();
+    }
+
+    set hass(hass) {
+        this._hass = hass;
+        if (!this._config) return;
+        if (this._tile) this._tile.hass = this._tileHass();
+        else this._apply();
+    }
+
+    // Dashboard properties the tile card uses
+    set preview(value) {
+        this._preview = value;
+        if (this._tile) this._tile.preview = value;
+    }
+
+    set layout(value) {
+        this._layoutValue = value;
+        if (this._tile) this._tile.layout = value;
+    }
+
+    getCardSize() {
+        return this._open ? 8 : 1;
+    }
+
+    // Full width, as the map needs the room; the dashboard's layout can narrow it
+    getGridOptions() {
+        return { columns: "full", rows: "auto", min_columns: 6 };
+    }
+
+    get _entityId() {
+        return this._config?.entity || robots(this._hass)[0];
+    }
+
+    _tileHass() {
+        return withReadouts(this._hass, this._entityId, this._memo);
+    }
+
+    // Whether the card is open is remembered in this browser, per robot
+    get _storageKey() {
+        return `openneato-card:${this._config?.entity || "robot"}`;
+    }
+
+    _storedOpen() {
+        try {
+            const value = window.localStorage.getItem(this._storageKey);
+            return value === null ? undefined : value === "1";
+        } catch (err) {
+            return undefined;
+        }
+    }
+
+    _setOpen(open) {
+        if (open === this._open) return;
+        this._open = open;
+        // Keep the card where it is on screen while its height changes: the
+        // features appear (or go) over the next moment, and without this the
+        // dashboard can scroll away from the card
+        this._anchor = { top: this.getBoundingClientRect().top, until: performance.now() + 1500 };
+        this._watchSize();
+        try {
+            window.localStorage.setItem(this._storageKey, open ? "1" : "0");
+        } catch (err) {
+            // Storage can be unavailable (private windows); the card still works
+        }
+        this._apply();
+    }
+
+    _watchSize() {
+        if (this._sizeObserver) return;
+        this._sizeObserver = new ResizeObserver(() => this._keepInPlace());
+        this._sizeObserver.observe(this);
+    }
+
+    _keepInPlace() {
+        const anchor = this._anchor;
+        if (!anchor || performance.now() > anchor.until) return;
+        const moved = this.getBoundingClientRect().top - anchor.top;
+        if (Math.abs(moved) < 0.5) return;
+        const scroller = scrollParent(this);
+        if (scroller) scroller.scrollTop += moved;
+        else window.scrollBy(0, moved);
+    }
+
+    // The tile card, with its features only while the card is open: a closed
+    // card has no feature on the page, so it asks the robot for nothing.
+    _apply() {
+        const entity = this._entityId;
+        this._notice.hidden = Boolean(entity) || !this._hass;
+        this._chevron.hidden = !entity || this._config.show_chevron !== true;
+        this._chevron.setAttribute("aria-expanded", String(this._open));
+        this._chevron.setAttribute("aria-label", this._open ? "Hide the features" : "Show the features");
+        if (!entity) return;
+        const tile = tileConfigOf(this._config, entity, this._open);
+        if (this._tile) {
+            this._tile.setConfig(tile);
+        } else if (customElements.get("hui-tile-card")) {
+            this._createTile(tile);
+        } else if (!this._loading && window.loadCardHelpers) {
+            // The tile card is loaded on demand; the card helpers load it
+            this._loading = true;
+            window.loadCardHelpers().then(async (helpers) => {
+                helpers.createCardElement({ type: "tile", entity });
+                await customElements.whenDefined("hui-tile-card");
+                this._loading = false;
+                if (!this._tile) this._createTile(tileConfigOf(this._config, this._entityId || entity, this._open));
+            });
+        }
+    }
+
+    _createTile(tile) {
+        this._tile = document.createElement("hui-tile-card");
+        this._tile.setConfig(tile);
+        if (this._hass) this._tile.hass = this._tileHass();
+        if (this._preview !== undefined) this._tile.preview = this._preview;
+        if (this._layoutValue !== undefined) this._tile.layout = this._layoutValue;
+        this._tileWrap.replaceChildren(this._tile);
+    }
+}
+
+/* ── the editors ─────────────────────────────────────────────────────── */
+
+const select = (options, extra = {}) => ({ select: { mode: "dropdown", options: options.map(([value, label]) => ({ value, label })), ...extra } });
+const sortable = (options) => ({ select: { multiple: true, reorder: true, mode: "dropdown", options: options.map(([value, label]) => ({ value, label })) } });
+const divider = { type: "divider" };
+const toggle = (name, label, helper) => ({ name, label, ...(helper ? { helper } : {}), selector: { boolean: {} } });
+
+// The Replay map's form fields, in order, and where each is kept in YAML
+const REPLAY_FIELDS = [
+    ["selector", "header", "selector"],
+    ["area", "header", "area"],
+    ["distance", "header", "distance"],
+    ["duration", "header", "duration"],
+    ["battery", "header", "battery"],
+    ["hide_labels", "header", "hide_labels"],
+    ["autoplay", null, "autoplay"],
+    ["units", null, "units"],
+    ["height", null, "height"],
+    ["fit", null, "fit"],
+    ["live_badge_show", "live_badge", "show"],
+    ["live_badge_position", "live_badge", "position"],
+    ["alignment_badge_show", "alignment_badge", "show"],
+    ["alignment_badge_position", "alignment_badge", "position"],
+    ["straighten", "rotation", "straighten"],
+    ["degrees", "rotation", "degrees"],
+    ["floorplan", "floorplan", "show"],
+    ["floorplan_tiled", "floorplan", "tiled"],
+    ["floorplan_opacity", "floorplan", "opacity"],
+    ["grid", null, "grid"],
+    ["trail", "coverage", "trail"],
+    ["coverage_tiled", "coverage", "tiled"],
+];
+const replayDefault = (group, key) => (group ? REPLAY_DEFAULTS[group][key] : REPLAY_DEFAULTS[key]);
+
+// Each feature's form: the fields, what they show, and what is saved
+const FEATURE_FORMS = {
+    // The Replay map, in the order its parts show on the card: the picker and the
+    // figures beside it, the map, then the playback
+    [`custom:${REPLAY_TYPE}`]: () => ({
+        schema: (c) => {
+            const floorplan = c.floorplan?.show ?? REPLAY_DEFAULTS.floorplan.show;
+            const straighten = c.rotation?.straighten ?? REPLAY_DEFAULTS.rotation.straighten;
+            const liveBadge = c.live_badge?.show ?? REPLAY_DEFAULTS.live_badge.show;
+            const alignmentBadge = c.alignment_badge?.show ?? REPLAY_DEFAULTS.alignment_badge.show;
+            const corners = select([["top_left", "Top left"], ["top_right", "Top right"], ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"]]);
+            return [
+                toggle("selector", "Session selector", "When hidden, the map shows the latest run, and follows a clean as it starts."),
+                toggle("area", "Area"),
+                toggle("distance", "Distance"),
+                toggle("duration", "Duration"),
+                toggle("battery", "Battery"),
+                toggle("hide_labels", "Hide labels", "Show the figures without their names; the names show on hover."),
+                // Home Assistant's divider sets apart the options kept together in YAML
+                divider,
+                toggle("autoplay", "Autoplay"),
+                { name: "units", label: "Units", required: true, selector: select([["auto", "Auto"], ["metric", "Metric"], ["us_customary", "US customary"]]) },
+                { name: "height", label: "Height", selector: { number: { mode: "box", min: 120, max: 1200, step: 10, unit_of_measurement: "px" } } },
+                {
+                    name: "fit", label: "Framing", required: true,
+                    selector: select([["stable", "Stable between cleanings"], ["plan", "Whole floorplan"], ["session", "This session only"]]),
+                },
+                divider,
+                toggle("live_badge_show", "Live badge"),
+                ...(liveBadge ? [{ name: "live_badge_position", label: "Live badge corner", required: true, selector: corners }] : []),
+                divider,
+                toggle("alignment_badge_show", "Alignment badge", "During a clean, how the track is lined up: Dock, Walls, Previous or Unaligned."),
+                ...(alignmentBadge ? [{ name: "alignment_badge_position", label: "Alignment badge corner", required: true, selector: corners }] : []),
+                divider,
+                toggle("straighten", "Straighten against the walls"),
+                {
+                    name: "degrees", label: "Rotation",
+                    helper: straighten ? "Added to the straightened angle." : "The map's angle.",
+                    selector: { number: { mode: "box", min: -360, max: 360, step: 0.5, unit_of_measurement: "°" } },
+                },
+                divider,
+                toggle("floorplan", "Floorplan"),
+                // They do nothing without the floorplan
+                ...(floorplan ? [
+                    toggle("floorplan_tiled", "Tiled floorplan"),
+                    { name: "floorplan_opacity", label: "Floorplan opacity", selector: { number: { min: 0, max: 1, step: 0.05, mode: "slider" } } },
+                ] : []),
+                divider,
+                toggle("grid", "Background grid"),
+                divider,
+                toggle("trail", "Trail"),
+                toggle("coverage_tiled", "Tiled coverage and trail"),
+            ];
+        },
+        data: (c) => Object.fromEntries(REPLAY_FIELDS.map(([field, group, key]) => [
+            field, (group ? c[group]?.[key] : c[key]) ?? replayDefault(group, key),
+        ])),
+        // What the person changed is written, nested where it belongs, even when
+        // it is the default; options left alone stay as they are in the YAML
+        save: (v, c) => {
+            const out = { ...c };
+            for (const [field, group, key] of REPLAY_FIELDS) {
+                const shown = (group ? c[group]?.[key] : c[key]) ?? replayDefault(group, key);
+                let value = v[field];
+                if (value === undefined || value === "" || String(value) === String(shown)) continue;
+                if (field === "degrees" || field === "height") value = Number(value);
+                if (group) out[group] = { ...(out[group] ?? {}), [key]: value };
+                else out[key] = value;
+            }
+            return out;
+        },
+    }),
+    [`custom:${CONTROLS_TYPE}`]: (hass, entityId) => ({
+        schema: [{ name: "items", label: "Controls", selector: sortable(controlsOf(hass, entityId).map((c) => [c.key, c.label])) }],
+        data: (c) => ({ items: Array.isArray(c.items) ? c.items : [] }),
+        save: (v, c) => ({ ...c, items: v.items ?? [] }),
+    }),
+    // As in Home Assistant's own editors: every choice, unless customized
+    [`custom:${SUCTION_TYPE}`]: (hass, entityId) => {
+        const speeds = fanSpeedsOf(hass, entityId);
+        return {
+            schema: (c) => [
+                { name: "customize_fan_speeds", label: "Customize suction levels", selector: { boolean: {} } },
+                ...(Array.isArray(c.fan_speeds)
+                    ? [{ name: "fan_speeds", label: "Suction levels", selector: sortable(speeds.map((s) => [s, capitalize(s)])) }]
+                    : []),
+            ],
+            data: (c) => ({
+                customize_fan_speeds: Array.isArray(c.fan_speeds),
+                ...(Array.isArray(c.fan_speeds) ? { fan_speeds: c.fan_speeds } : {}),
+            }),
+            // Turning Customize on starts with every level; off removes the list
+            save: (v, c) => {
+                const out = { ...c };
+                if (v.customize_fan_speeds) out.fan_speeds = Array.isArray(v.fan_speeds) ? v.fan_speeds : speeds;
+                else delete out.fan_speeds;
+                return out;
+            },
+        };
+    },
+    [`custom:${CONFIGURATION_TYPE}`]: (hass, entityId) => ({
+        schema: [{ name: "items", label: "Settings", selector: sortable(configurables(hass, entityId).map((c) => [c.key, c.label])) }],
+        data: (c) => ({ items: Array.isArray(c.items) ? c.items : [] }),
+        save: (v, c) => ({ ...c, items: v.items ?? [] }),
+    }),
+};
+
+// The editor Home Assistant opens for one of these features in a tile card's
+// features list
+class OpenNeatoFeatureEditor extends HTMLElement {
+    set hass(hass) {
+        this._hass = hass;
+        this._render();
+    }
+
+    set context(context) {
+        this._context = context;
+        this._render();
+    }
+
+    setConfig(config) {
+        this._config = config;
+        this._render();
+    }
+
+    _form() {
+        return FEATURE_FORMS[this._config?.type]?.(this._hass, this._context?.entity_id);
+    }
+
+    _render() {
+        if (!this._hass || !this._config) return;
+        const form = this._form();
+        if (!form) return;
+        if (!this._haForm) {
+            this._haForm = document.createElement("ha-form");
+            this._haForm.computeLabel = (s) => s.label ?? s.name;
+            this._haForm.computeHelper = (s) => s.helper;
+            this._haForm.addEventListener("value-changed", (ev) => {
+                ev.stopPropagation();
+                const config = { ...this._form().save(ev.detail.value, this._config), type: this._config.type };
+                this._config = config;
+                fire(this, "config-changed", { config });
+                // Some fields show only for some choices
+                this._render();
+            });
+            this.append(this._haForm);
+        }
+        this._haForm.hass = this._hass;
+        this._haForm.schema = typeof form.schema === "function" ? form.schema(this._config) : form.schema;
+        this._haForm.data = form.data(this._config);
+    }
+}
+
+// The tile card's own editor, with Tap behavior left out (a tap on the tile
+// shows or hides the features) and the robot picker offering only the robots.
+// It is the tile card's own editor class, so it keeps every change Home
+// Assistant makes to it; if an update renames its form layout, the editor still
+// works and simply shows Tap behavior again.
+const HIDDEN_TILE_OPTIONS = ["tap_action"];
+
+function hideOptions(schema, entities) {
+    return schema
+        .filter((item) => !HIDDEN_TILE_OPTIONS.includes(item.name))
+        .map((item) => {
+            if (Array.isArray(item.schema)) return { ...item, schema: hideOptions(item.schema, entities) };
+            if (item.name === "entity" && entities) return { ...item, selector: { entity: { include_entities: entities } } };
+            return item;
+        });
+}
+
+function tileEditorType() {
+    if (customElements.get(TILE_EDITOR_TYPE)) return TILE_EDITOR_TYPE;
+    const Base = customElements.get("hui-tile-card-editor");
+    if (!Base) return null;
+    customElements.define(TILE_EDITOR_TYPE, class extends Base {
+        constructor() {
+            super();
+            const original = this._schema;
+            if (typeof original !== "function") return;
+            let lastIn, lastKey, lastOut;
+            this._schema = (...args) => {
+                const schema = original.apply(this, args);
+                const key = (this.openneatoRobots ?? []).join(",");
+                if (schema !== lastIn || key !== lastKey) {
+                    lastIn = schema;
+                    lastKey = key;
+                    lastOut = Array.isArray(schema) ? hideOptions(schema, this.openneatoRobots) : schema;
+                }
+                return lastOut;
+            };
+        }
+    });
+    return TILE_EDITOR_TYPE;
+}
+
+// What the tile card's editor is given: the card without its own option
+function tileEditorConfig(config) {
+    // The card's State content, not the tile card's, when the YAML leaves it out
+    const tile = { ...config, type: "tile", state_content: config.state_content ?? DEFAULT_STATE_CONTENT };
+    for (const key of OWN_KEYS) delete tile[key];
+    delete tile.tap_action;
+    return tile;
+}
+
+class OpenNeatoCardEditor extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: "open" });
+        this.shadowRoot.innerHTML = `
+            <style>
+                #tile { display: block; }
+                [hidden] { display: none !important; }
+                ha-alert { display: block; margin-bottom: 24px; }
+                ha-expansion-panel {
+                    display: block; margin-top: 24px;
+                    --expansion-panel-content-padding: 0;
+                    border-radius: var(--ha-border-radius-md, 8px);
+                    --ha-card-border-radius: var(--ha-border-radius-md, 8px);
+                }
+                ha-expansion-panel > [slot="header"] { margin: 0; font-size: inherit; font-weight: inherit; }
+                .content { padding: 12px; }
+            </style>
+            <ha-alert alert-type="error" hidden></ha-alert>
+            <div id="tile"></div>
+            <ha-expansion-panel outlined expanded>
+                <div slot="header" role="heading" aria-level="3">OpenNeato</div>
+                <div class="content"><ha-form id="form"></ha-form></div>
+            </ha-expansion-panel>`;
+        this._form = this.shadowRoot.getElementById("form");
+        this._error = this.shadowRoot.querySelector("ha-alert");
+        this._form.computeLabel = (s) => s.label ?? s.name;
+        this._form.computeHelper = (s) => s.helper;
+        this._form.schema = [
+            toggle("expanded", "Expanded on load"),
+            toggle("show_chevron", "Chevron", "A chevron at the top right that shows or hides the features. A tap on the card does it too."),
+        ];
+        this._form.addEventListener("value-changed", (ev) => {
+            ev.stopPropagation();
+            const value = ev.detail.value;
+            const next = { ...this._config, expanded: value.expanded === true, show_chevron: value.show_chevron === true };
+            this._config = next;
+            this._render();
+            this._fire();
+        });
+        this._memo = {};
+    }
+
+    set hass(hass) {
+        this._hass = hass;
+        this._form.hass = hass;
+        if (this._tileEditor) this._tileEditor.hass = this._tileHass(this._config?.entity);
+    }
+
+    set lovelace(lovelace) {
+        this._lovelace = lovelace;
+        if (this._tileEditor) this._tileEditor.lovelace = lovelace;
+    }
+
+    // With the robot's sensors as attributes, so State content can offer them
+    _tileHass(entity) {
+        const id = entity || robots(this._hass)[0];
+        // Every sensor, with a value or not, so the picker can offer each one
+        return id ? withReadouts(this._hass, id, this._memo, true) : this._hass;
+    }
+
+    setConfig(config) {
+        this._config = config;
+        this._render();
+        this._setTileEditorConfig();
+    }
+
+    async _setTileEditorConfig() {
+        if (!this._tileEditor) {
+            this._loading ??= (async () => {
+                const helpers = await window.loadCardHelpers();
+                helpers.createCardElement({ type: "tile", entity: this._config.entity });
+                await customElements.whenDefined("hui-tile-card");
+                const original = await customElements.get("hui-tile-card").getConfigElement();
+                const type = tileEditorType();
+                const editor = type ? document.createElement(type) : original;
+                editor.addEventListener("config-changed", (ev) => {
+                    // The tile card's options changed: keep the card's own and pass the whole card on
+                    ev.stopPropagation();
+                    const own = Object.fromEntries(OWN_KEYS.filter((k) => k in this._config).map((k) => [k, this._config[k]]));
+                    const next = { ...ev.detail.config, ...own, type: this._config.type };
+                    delete next.tap_action;
+                    this._config = next;
+                    this._fire();
+                    // The tile editor shows a change only once its configuration is handed back
+                    editor.setConfig(ev.detail.config);
+                    if (ev.detail.config.entity) editor.hass = this._tileHass(ev.detail.config.entity);
+                });
+                editor.openneatoRobots = robots(this._hass);
+                editor.hass = this._tileHass(this._config.entity);
+                if (this._lovelace) editor.lovelace = this._lovelace;
+                this.shadowRoot.getElementById("tile").replaceWith(editor);
+                this._tileEditor = editor;
+            })();
+            await this._loading;
+        }
+        // The tile card's editor refuses an option it does not know. Say so, in
+        // Home Assistant's words, rather than leave the editor empty.
+        try {
+            this._tileEditor.setConfig(tileEditorConfig(this._config));
+            this._error.hidden = true;
+            this._tileEditor.hidden = false;
+        } catch (err) {
+            console.error("openneato-card: the tile card's editor refused this card", err);
+            this._error.textContent = `${err?.message ?? err}. Edit this card in the code editor.`;
+            this._error.hidden = false;
+            this._tileEditor.hidden = true;
+        }
+    }
+
+    _render() {
+        this._form.data = { expanded: this._config.expanded === true, show_chevron: this._config.show_chevron === true };
+    }
+
+    _fire() {
+        fire(this, "config-changed", { config: this._config });
+    }
+}
+
+function legacyUnits(units) {
+    return units === "imperial" ? "us_customary" : units;
+}
+
+function legacyReplayConfig(config) {
+    const rotation = config.rotation === "auto" || config.rotation === undefined
+        ? { straighten: true, degrees: 0 }
+        : { straighten: false, degrees: Number(config.rotation) || 0 };
+    const showStats = config.show_stats !== false;
+    return {
+        type: `custom:${CARD_TYPE}`,
+        ...(config.entity ? { entity: config.entity } : {}),
+        name: config.title ?? "Cleaning replay",
+        expanded: true,
+        show_chevron: false,
+        features: [{
+            type: `custom:${REPLAY_TYPE}`,
+            header: {
+                selector: config.show_picker !== false,
+                area: showStats,
+                distance: showStats,
+                duration: showStats,
+                battery: showStats,
+                hide_labels: false,
+            },
+            ...(config.entry_id && !config.entity ? { entry_id: config.entry_id } : {}),
+            ...(config.session ? { session: config.session } : {}),
+            ...(config.speed !== undefined ? { speed: config.speed } : {}),
+            ...(config.autoplay !== undefined ? { autoplay: config.autoplay } : {}),
+            ...(config.units !== undefined ? { units: legacyUnits(config.units) } : {}),
+            ...(config.height !== undefined ? { height: config.height } : {}),
+            ...(config.fit !== undefined ? { fit: config.fit } : {}),
+            rotation,
+            floorplan: {
+                show: config.floorplan !== false,
+                tiled: config.tiled_plan ?? config.floorplan_tiled ?? config.grid !== false,
+                opacity: config.floorplan_opacity ?? 1,
+            },
+            grid: config.grid_lines ?? config.grid ?? true,
+            coverage: {
+                trail: config.trail !== false,
+                tiled: config.tiled_coverage ?? config.grid !== false,
+            },
+        }],
+    };
+}
+
+class OpenNeatoLegacyReplayCard extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: "open" });
+        this._card = document.createElement(CARD_TYPE);
+        this.shadowRoot.append(this._card);
+    }
+
+    static getStubConfig() {
+        return { type: "custom:openneato-replay-card" };
+    }
+
+    static getConfigElement() {
+        return document.createElement(CARD_EDITOR_TYPE);
+    }
+
+    setConfig(config) {
+        if (!config) throw new Error("Invalid configuration");
+        this._legacy = config;
+        this._lookup = null;
+        this._applied = null;
+        this._applyLegacy();
+    }
+
+    set hass(hass) {
+        this._hass = hass;
+        this._applyLegacy();
+        this._card.hass = hass;
+    }
+
+    // The wrapped card is configured once the robot is known. An old
+    // multi-robot card names it by entry_id, which the registries turn into
+    // the vacuum entity once hass is here; until then (or if the entry is
+    // unknown) the feature keeps the entry_id, so the map is right even while
+    // the tile is not. The card is reconfigured only when the answer changes.
+    _applyLegacy() {
+        const legacy = this._legacy;
+        if (!legacy) return;
+        const entity = legacy.entity || this._entryEntity();
+        const applied = { legacy, entity: entity || "" };
+        if (this._applied && this._applied.legacy === applied.legacy && this._applied.entity === applied.entity) return;
+        this._applied = applied;
+        this._card.setConfig(legacyReplayConfig(entity ? { ...legacy, entity } : legacy));
+    }
+
+    // The registries are new objects only when they change, so an entry that
+    // was not found is not looked for again until they do
+    _entryEntity() {
+        const hass = this._hass;
+        const entryId = this._legacy?.entry_id;
+        if (!hass || !entryId) return undefined;
+        const seen = this._lookup;
+        if (seen && seen.entities === hass.entities && seen.devices === hass.devices) return seen.entity;
+        const entity = robotOfEntry(hass, entryId);
+        this._lookup = { entities: hass.entities, devices: hass.devices, entity };
+        return entity;
+    }
+
+    set preview(value) {
+        this._card.preview = value;
+    }
+
+    set layout(value) {
+        this._card.layout = value;
+    }
+
+    getCardSize() {
+        return this._card.getCardSize();
+    }
+
+    getGridOptions() {
+        return this._card.getGridOptions();
+    }
+}
+
+/* ── registration ────────────────────────────────────────────────────── */
+
+for (const [tag, cls] of [
+    [REPLAY_TYPE, OpenNeatoReplay],
+    [CONTROLS_TYPE, OpenNeatoControls],
+    [SUCTION_TYPE, OpenNeatoSuction],
+    [CONFIGURATION_TYPE, OpenNeatoConfiguration],
+    [FEATURE_EDITOR_TYPE, OpenNeatoFeatureEditor],
+    [CARD_EDITOR_TYPE, OpenNeatoCardEditor],
+    [CARD_TYPE, OpenNeatoCard],
+    ["openneato-replay-card", OpenNeatoLegacyReplayCard],
+]) {
+    if (!customElements.get(tag)) customElements.define(tag, cls);
+}
+
+const supported = (extra) => (hass, context) => isOpenNeato(hass, context?.entity_id) && (!extra || extra(hass, context.entity_id));
+window.customCardFeatures = window.customCardFeatures || [];
+for (const feature of [
+    { type: REPLAY_TYPE, name: "OpenNeato replay map", isSupported: supported(), configurable: true },
+    { type: CONTROLS_TYPE, name: "OpenNeato controls", isSupported: supported((hass, id) => controlsOf(hass, id).length > 0), configurable: true },
+    { type: SUCTION_TYPE, name: "OpenNeato suction", isSupported: supported((hass, id) => fanSpeedsOf(hass, id).length > 0), configurable: true },
+    {
+        type: CONFIGURATION_TYPE, name: "OpenNeato configuration",
+        isSupported: supported((hass, id) => configurables(hass, id).length > 0), configurable: true,
+    },
+]) {
+    if (!window.customCardFeatures.some((f) => f.type === feature.type)) window.customCardFeatures.push(feature);
 }
 
 window.customCards = window.customCards || [];
+if (!window.customCards.some((card) => card.type === CARD_TYPE)) {
+    window.customCards.push({ type: CARD_TYPE, name: "OpenNeato", preview: true });
+}
 if (!window.customCards.some((card) => card.type === "openneato-replay-card")) {
     window.customCards.push({
         type: "openneato-replay-card",
-        name: "OpenNeato Replay",
-        description: "Smooth canvas replay of a cleaning session, with scrubber and playback controls.",
+        name: "OpenNeato Replay (legacy)",
+        description: "Compatibility card for existing OpenNeato replay dashboards.",
         preview: false,
     });
 }
 
 console.info(
-    `%c OPENNEATO-REPLAY-CARD %c ${CARD_VERSION} `,
+    `%c OPENNEATO-CARD %c ${CARD_VERSION} `,
     "color: #1e1e22; background: #34c759; font-weight: 700;",
     "color: #34c759; background: #1e1e22;",
 );
