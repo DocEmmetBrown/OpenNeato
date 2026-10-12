@@ -299,6 +299,23 @@ The most useful contributions are testing prereleases on your hardware, filing c
 If you'd rather just say thanks, there's a [Ko-fi](https://ko-fi.com/renjfk). Optional, doesn't influence the
 roadmap, the project stays free and community-driven either way.
 
+### Thanks
+
+This fork is what it is because people showed up with code, hardware and bug reports. In particular:
+
+- [@GizmoGoody](https://github.com/GizmoGoody) — replay alignment onto the floorplan (#28), the card registering
+  itself on startup (#26), honest session dates (#27), alerts no longer shown as errors (#29), the hassfest and HACS
+  fixes (#24, #25), the tile card in progress (#30), and a Home Assistant test suite on their fork.
+- [@Mephisto090](https://github.com/Mephisto090) — the live map of a clean in progress (#14), and the German
+  translation upstream.
+- [@LukaGitH](https://github.com/LukaGitH) — saved map snapshots, the manual drive controls, and the LIDAR refresh
+  fixes.
+- [@Philou95](https://github.com/Philou95) — the replay card in place of the map cameras, the bumper sensors, the
+  LIDAR reliability fixes, and the exception-free firmware build.
+- [@druby-luke](https://github.com/druby-luke) — battery diagnostics and calibration (#3).
+- [@lezruk](https://github.com/lezruk) — the two-robot bug report that led to `entity` on the card (#23).
+- [@renjfk](https://github.com/renjfk) and everyone upstream, whose work this fork builds on.
+
 > [!TIP]
 > Before opening an issue, consider starting a [Discussion](https://github.com/renjfk/OpenNeato/discussions) first —
 > many questions, setup troubles, and ideas are easier to resolve through conversation.
