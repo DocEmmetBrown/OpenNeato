@@ -88,6 +88,13 @@ MAX_GRID_CELLS = 200_000
 # only 35%. Anything below this is far more likely to be a bad fit than a
 # genuine discovery, and merging it would corrupt the accumulated map.
 MERGE_MIN_OVERLAP = 0.55
+# A fit near the last clean's alignment is kept unless another fits better
+# than this (see best_alignment).
+PREFER_NEAR_MARGIN = 0.05
+# Small turns tried on top of the quarter turn, about the robot's zero (the
+# dock), so a long clean does not drift off the walls at one end
+FINE_TURN_MAX_DEG = 4.0
+FINE_TURN_STEP_DEG = 0.5
 
 
 # ── geometry ────────────────────────────────────────────────────────
@@ -140,6 +147,114 @@ def _rotate_cells(cells: Iterable[tuple[int, int]], quarter: int) -> list[tuple[
     if q == 2:
         return [(-cx, -cy) for cx, cy in cells]
     return [(cy, -cx) for cx, cy in cells]
+
+
+def transform_cells(
+    cells: Iterable[tuple[int, int]], align: tuple[float, ...]
+) -> list[tuple[int, int]]:
+    """Cells moved by an alignment: (quarter, dx, dy) or (quarter, dx, dy, deg).
+
+    The quarter turn first, then the small turn, both about the robot's zero,
+    then the shift in cells.
+    """
+    quarter, dx, dy = int(align[0]), int(align[1]), int(align[2])
+    deg = float(align[3]) if len(align) > 3 else 0.0
+    turned = _rotate_cells(cells, quarter)
+    if deg:
+        c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+        turned = [(round(cx * c - cy * s), round(cx * s + cy * c)) for cx, cy in turned]
+    return [(cx + dx, cy + dy) for cx, cy in turned]
+
+
+def anchored_alignment(
+    new_walls: dict[tuple[int, int], int],
+    ref_walls: dict[tuple[int, int], int],
+    dock: tuple[float, float],
+    guess: tuple[int, int, int] | None = None,
+) -> tuple[int, int, int, float, float]:
+    """Fit a clean that started on the dock: the dock sets the shift.
+
+    The robot's zero is where it started, the dock, which is the same place
+    on the map every clean. So the shift is the dock's, learnt from earlier
+    cleans; the walls only decide the quarter turn (which they are good at)
+    and a small turn on top. Returns (quarter, dx, dy, deg, overlap).
+    """
+    if not ref_walls or not new_walls:
+        return 0, 0, 0, 0.0, 0.0
+    quarter = best_alignment(new_walls, ref_walls, guess)[0]
+    dx, dy = round(dock[0]), round(dock[1])
+    ref = set(ref_walls)
+    best = (quarter, dx, dy, 0.0, -1.0)
+    steps = int(FINE_TURN_MAX_DEG / FINE_TURN_STEP_DEG)
+    # Smallest turns first, so a tie keeps the straighter answer
+    for step in sorted(range(-steps, steps + 1), key=abs):
+        deg = step * FINE_TURN_STEP_DEG
+        moved = transform_cells(new_walls, (quarter, dx, dy, deg))
+        score = sum(1 for cell in moved if cell in ref) / min(len(moved), len(ref))
+        if score > best[4]:
+            best = (quarter, dx, dy, deg, score)
+    return best
+
+
+def run_key(name: str) -> str:
+    """A clean's key: its file name without .jsonl or .hs.
+
+    The bridge records a clean as <start>.jsonl and, once it ends, compresses
+    it to <start>.jsonl.hs, so the same clean goes by both names.
+    """
+    for suffix in (".hs", ".jsonl"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return name
+
+
+def align_near(
+    new_walls: dict[tuple[int, int], int],
+    ref_walls: dict[tuple[int, int], int],
+    guess: tuple[int, int, int],
+    search_cells: int = 12,
+) -> tuple[int, int, int, float]:
+    """Fit a session's walls onto the map close to a known alignment.
+
+    Only the guess's quarter turn, and shifts within search_cells of its
+    shift. Returns (quarter, dx, dy, overlap), scored as align_to_reference
+    scores.
+    """
+    if not ref_walls or not new_walls:
+        return 0, 0, 0, 0.0
+    quarter, gx, gy = (int(v) for v in guess)
+    ref = set(ref_walls)
+    rotated = _rotate_cells(new_walls, quarter)
+    best = (quarter, gx, gy, -1.0)
+    for dx in range(gx - search_cells, gx + search_cells + 1):
+        for dy in range(gy - search_cells, gy + search_cells + 1):
+            hit = sum(1 for cx, cy in rotated if (cx + dx, cy + dy) in ref)
+            score = hit / min(len(rotated), len(ref))
+            if score > best[3]:
+                best = (quarter, dx, dy, score)
+    return best
+
+
+def best_alignment(
+    new_walls: dict[tuple[int, int], int],
+    ref_walls: dict[tuple[int, int], int],
+    guess: tuple[int, int, int] | None = None,
+) -> tuple[int, int, int, float]:
+    """Fit a session's walls onto the map, preferring a fit near the guess.
+
+    A few walls can match a small patch of the map almost anywhere, with an
+    overlap score that looks excellent: one clean's first scans fitted at 0
+    degrees and (17, 39) cells with 99% overlap, when the right fit was 90
+    degrees and (3, 2) cells. The robot's frame stays the same from clean to
+    clean, so a fit near the last clean's alignment wins unless another fits
+    clearly better.
+    """
+    best = align_to_reference(new_walls, ref_walls)
+    if guess is not None:
+        near = align_near(new_walls, ref_walls, guess)
+        if near[3] >= MERGE_MIN_OVERLAP and near[3] >= best[3] - PREFER_NEAR_MARGIN:
+            return near
+    return best
 
 
 def align_to_reference(
@@ -346,19 +461,24 @@ class AccumulatedMap:
         # Quarter turn that puts the reference map the right way up, kept so
         # the orientation cannot flip between renders.
         self.quarter_lock: int = int(data.get("quarter_lock", 0))
-        # Correction applied to each merged session, keyed by its file name.
-        #
-        # A session arrives in whatever frame the robot's localisation happened
-        # to be in; align_to_reference() fits it onto the accumulated map
-        # before merging. That correction used to be computed, used and thrown
-        # away -- so the map held straightened walls while the card was still
-        # served the session's raw path and coverage. After a localisation
-        # loss the two came out a quarter turn apart, which is exactly what a
-        # user sees as "the cleaned area does not line up with the walls".
-        # Keeping it lets the replay be served in the same frame as the map.
-        self.alignments: dict[str, tuple[int, int, int]] = {
-            k: tuple(v) for k, v in (data.get("alignments") or {}).items()
-        }
+        # Each clean's alignment onto the map, keyed by run_key(), so the
+        # replay is drawn in the map's frame and not the robot's frame of the
+        # day (a quarter turn round, or shifted, after the robot re-zeroes).
+        #   merged  the clean was merged into the map with this alignment
+        #   fitted  the clean was not merged; this is its own fit from its scans
+        # Stored oldest first. Earlier versions stored a bare [q, dx, dy]
+        # under the file name; those were all merged.
+        self.alignments: dict[str, dict[str, Any]] = {}
+        for name, value in (data.get("alignments") or {}).items():
+            if isinstance(value, dict):
+                self.alignments[run_key(name)] = {"align": tuple(value["align"]), "kind": value["kind"]}
+            else:
+                self.alignments[run_key(name)] = {"align": tuple(value), "kind": "merged"}
+        # Where the dock is on the map, as the shift of a clean that started on
+        # it (the robot's zero is the dock): a running average of the merged
+        # shifts of cleans that started docked. None until one has.
+        dock = data.get("dock")
+        self.dock: dict[str, float] | None = dict(dock) if dock else None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -366,21 +486,78 @@ class AccumulatedMap:
             "floor": [f"{cx},{cy}" for cx, cy in self.floor],
             "sessions": self.sessions,
             "quarter_lock": self.quarter_lock,
-            "alignments": {k: list(v) for k, v in self.alignments.items()},
+            "alignments": {
+                k: {"align": list(v["align"]), "kind": v["kind"]} for k, v in self.alignments.items()
+            },
+            "dock": self.dock,
         }
+
+    def dock_shift(self) -> tuple[float, float] | None:
+        """The dock's shift: learnt from docked starts, else the merged cleans' average.
+
+        Before any clean is known to have started docked, the average of the
+        stored merged shifts stands in; almost every clean starts on the dock.
+        """
+        if self.dock:
+            return self.dock["dx"], self.dock["dy"]
+        merged = [r["align"] for r in self.alignments.values() if r["kind"] == "merged"]
+        if not merged:
+            return None
+        return sum(a[1] for a in merged) / len(merged), sum(a[2] for a in merged) / len(merged)
+
+    def learn_dock(self, dx: float, dy: float) -> None:
+        """Fold one docked start's merged shift into the dock's average."""
+        n = int(self.dock["n"]) if self.dock else 0
+        old_dx, old_dy = (self.dock["dx"], self.dock["dy"]) if self.dock else (0.0, 0.0)
+        self.dock = {
+            "dx": (old_dx * n + dx) / (n + 1),
+            "dy": (old_dy * n + dy) / (n + 1),
+            "n": n + 1,
+        }
+
+    def record(self, session_name: str, align: tuple[int, int, int], kind: str) -> None:
+        """Store a clean's alignment; the newest record goes last."""
+        key = run_key(session_name)
+        self.alignments.pop(key, None)
+        self.alignments[key] = {"align": tuple(align), "kind": kind}
+
+    def alignment_of(self, session_name: str) -> tuple[tuple[int, int, int], str] | None:
+        """A clean's own alignment and its kind, if it has one."""
+        found = self.alignments.get(run_key(session_name))
+        return (found["align"], found["kind"]) if found else None
+
+    def latest_merged(self) -> tuple[int, int, int] | None:
+        """The alignment of the clean most recently merged into the map."""
+        for record in reversed(self.alignments.values()):
+            if record["kind"] == "merged":
+                return record["align"]
+        return None
 
     def merge_session(
         self,
         walls: dict[tuple[int, int], int],
         floor: set[tuple[int, int]],
         session_name: str | None = None,
+        guess: tuple[int, int, int] | None = None,
+        docked: bool = False,
     ) -> dict[str, Any]:
-        """Fold one cleaning into the accumulated map, re-aligning it first."""
+        """Fold one cleaning into the accumulated map, re-aligning it first.
+
+        guess is the last merged clean's alignment, which a fit near it is
+        preferred to (see best_alignment). A clean that started docked, once
+        the dock's place is known, takes its shift from the dock instead
+        (see anchored_alignment).
+        """
         report: dict[str, Any] = {"session_walls": len(walls), "realigned": False}
+        quarter, dx, dy, deg = 0, 0, 0, 0.0
 
         if self.walls:
-            quarter, dx, dy, overlap = align_to_reference(walls, self.walls)
-            report.update(quarter=quarter, dx=dx, dy=dy, overlap=round(overlap, 3))
+            dock = self.dock_shift() if docked else None
+            if dock is not None:
+                quarter, dx, dy, deg, overlap = anchored_alignment(walls, self.walls, dock, guess)
+            else:
+                quarter, dx, dy, overlap = best_alignment(walls, self.walls, guess)
+            report.update(quarter=quarter, dx=dx, dy=dy, deg=deg, anchored=dock is not None, overlap=round(overlap, 3))
             if overlap < MERGE_MIN_OVERLAP:
                 # Nothing lines up. Rather than corrupt a good map with a bad
                 # fit, keep what we have and say so.
@@ -390,23 +567,24 @@ class AccumulatedMap:
                     "map; refusing to merge it", 100 * overlap,
                 )
                 return report
-            if quarter or dx or dy:
+            if quarter or dx or dy or deg:
                 report["realigned"] = True
                 _LOGGER.info(
-                    "LIDAR map: session re-aligned by %d deg and (%d, %d) cells "
-                    "before merging (%.0f%% overlap)",
-                    quarter * 90, dx, dy, 100 * overlap,
+                    "LIDAR map: session re-aligned by %.1f deg and (%d, %d) cells "
+                    "before merging (%.0f%% overlap%s)",
+                    quarter * 90 + deg, dx, dy, 100 * overlap, ", shift from the dock" if dock is not None else "",
                 )
-            walls = {
-                (cx + dx, cy + dy): n
-                for (cx, cy), n in zip(_rotate_cells(walls, quarter), walls.values())
-            }
-            floor = {
-                (cx + dx, cy + dy) for cx, cy in _rotate_cells(floor, quarter)
-            }
+            align = (quarter, dx, dy, deg)
+            moved: dict[tuple[int, int], int] = {}
+            for cell, n in zip(transform_cells(walls, align), walls.values()):
+                moved[cell] = moved.get(cell, 0) + n
+            walls = moved
+            floor = set(transform_cells(floor, align))
 
         if session_name:
-            self.alignments[session_name] = (quarter, dx, dy) if self.walls else (0, 0, 0)
+            self.record(session_name, (quarter, dx, dy, deg), "merged")
+        if docked:
+            self.learn_dock(dx, dy)
 
         for cell, n in walls.items():
             self.walls[cell] = self.walls.get(cell, 0) + n
