@@ -264,7 +264,8 @@ sensor states) are tagged so they cluster cleanly under HA's Diagnostic section.
   historical session, `speed`, `autoplay`, `fit`, `rotation`, `floorplan*`, `grid*`, `trail`, `units`,
   `show_picker`, and `show_stats` are translated to the replay feature. Legacy `imperial` units become
   Home Assistant's `us_customary`; a legacy `height: fill` has no exact tile-feature equivalent and uses
-  the replay feature's normal pixel height. The shim may be removed only in a future major release.
+  the replay feature's normal pixel height. The legacy card does not expose the new tile card's visual
+  editor or wrapper options. The shim may be removed only in a future major release.
 - **Reading the diagnostics** — two field names are misleading and the integration corrects for them:
   `errorCode` returns **200** (`UI_ALERT_INVALID`) when nothing is wrong, so the *Error code* sensor
   reports *unknown* instead; and `chargerMAH` / `dischargeMAH` are **milliamps, not milliamp-hours**

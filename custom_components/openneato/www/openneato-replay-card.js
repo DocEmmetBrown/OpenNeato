@@ -3771,8 +3771,6 @@ function legacyReplayConfig(config) {
         type: `custom:${CARD_TYPE}`,
         ...(config.entity ? { entity: config.entity } : {}),
         name: config.title ?? "Cleaning replay",
-        expanded: true,
-        show_chevron: false,
         features: [{
             type: `custom:${REPLAY_TYPE}`,
             header: {
@@ -3815,10 +3813,6 @@ class OpenNeatoLegacyReplayCard extends HTMLElement {
 
     static getStubConfig() {
         return { type: "custom:openneato-replay-card" };
-    }
-
-    static getConfigElement() {
-        return document.createElement(CARD_EDITOR_TYPE);
     }
 
     setConfig(config) {
