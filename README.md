@@ -121,6 +121,15 @@ integration adds the vacuum entity, the cleaning history / replay card and the L
 Assistant discovers the device; an existing entry for the same robot is migrated in place. See
 [docs/esphome.md](docs/esphome.md).
 
+### Cleaning calendar
+
+The [cleaning-calendar blueprint](blueprints/automation/openneato/clean_on_calendar.yaml) starts the robot when
+an event begins in any Home Assistant calendar (one-off dates, any repeat, optional navigation mode and spot
+clean from the event title). With the ESPHome firmware, the robot's own weekly schedule is also editable as a
+calendar; see [docs/esphome.md](docs/esphome.md#5-scheduling).
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLeicas%2FOpenNeato%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fopenneato%2Fclean_on_calendar.yaml)
+
 ### Notifications
 
 Both firmwares expose a **Robot event** entity (`cleaning_started`, `cleaning_done`, `docking_recharge`,

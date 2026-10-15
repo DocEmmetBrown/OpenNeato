@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from typing import Any
 
 import pytest
@@ -49,6 +50,8 @@ def auto_enable_custom_integrations(enable_custom_integrations, hass: HomeAssist
     frontend package; mark them loaded instead, the card is patched out.
     """
     hass.config.components.update({"frontend", "http", "websocket_api", "lovelace"})
+    # Components that register HTTP views (calendar) need an http server object.
+    hass.http = MagicMock()
 
 
 @dataclass
@@ -61,6 +64,20 @@ class FakeEsphomeDevice:
     entity_ids: dict[str, str] = field(default_factory=dict)
     calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     handlers: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = field(default_factory=dict)
+
+    def add_entity(self, etype: str, domain: str, object_id: str, value: str) -> str:
+        """Register one more ESPHome entity on the device."""
+        ent = er.async_get(self.hass).async_get_or_create(
+            domain,
+            "esphome",
+            f"{MAC.replace(':', '')}-{etype}-{object_id}",
+            config_entry=self.entry,
+            device_id=self.device.id,
+            suggested_object_id=f"neato_{object_id}",
+        )
+        self.entity_ids[object_id] = ent.entity_id
+        self.hass.states.async_set(ent.entity_id, value)
+        return ent.entity_id
 
     def set(self, object_id: str, value: str) -> None:
         """Set the state of one contract entity."""
@@ -97,18 +114,8 @@ def esphome_device(hass: HomeAssistant) -> Generator[FakeEsphomeDevice]:
         name="Neato",
     )
     fake = FakeEsphomeDevice(hass, entry, device)
-    registry = er.async_get(hass)
     for (etype, domain, object_id), value in DEFAULT_STATES.items():
-        ent = registry.async_get_or_create(
-            domain,
-            "esphome",
-            f"{MAC.replace(':', '')}-{etype}-{object_id}",
-            config_entry=entry,
-            device_id=device.id,
-            suggested_object_id=f"neato_{object_id}",
-        )
-        fake.entity_ids[object_id] = ent.entity_id
-        hass.states.async_set(ent.entity_id, value)
+        fake.add_entity(etype, domain, object_id, value)
 
     for action in (
         "clean",

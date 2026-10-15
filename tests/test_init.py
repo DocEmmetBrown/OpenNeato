@@ -27,7 +27,7 @@ def no_frontend(hass: HomeAssistant):
 
 
 async def test_esphome_entry(hass: HomeAssistant, esphome_device: FakeEsphomeDevice, tmp_path) -> None:
-    """An ESPHome entry adds only the vacuum, on the ESPHome device."""
+    """An ESPHome entry adds the vacuum and the schedule calendar, linked to the ESPHome device."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=MAC,
@@ -45,8 +45,8 @@ async def test_esphome_entry(hass: HomeAssistant, esphome_device: FakeEsphomeDev
     assert entry.data["serial"] == "OPS12345-ABC"
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert [e.domain for e in entities] == ["vacuum"]
-    vacuum = entities[0]
+    assert sorted(e.domain for e in entities) == ["calendar", "vacuum"]
+    vacuum = next(e for e in entities if e.domain == "vacuum")
     assert vacuum.unique_id == "OPS12345-ABC_vacuum"
     robot = dr.async_get(hass).async_get(vacuum.device_id)
     assert robot.identifiers == {(DOMAIN, "OPS12345-ABC")}
@@ -86,7 +86,10 @@ async def test_migrated_entry_drops_http_entities(
     await hass.async_block_till_done()
 
     entities = er.async_entries_for_config_entry(registry, entry.entry_id)
-    assert [(e.domain, e.unique_id) for e in entities] == [("vacuum", "OPS12345-ABC_vacuum")]
+    assert sorted((e.domain, e.unique_id) for e in entities) == [
+        ("calendar", "OPS12345-ABC_schedule_calendar"),
+        ("vacuum", "OPS12345-ABC_vacuum"),
+    ]
 
 
 async def test_esphome_entry_not_ready_when_disconnected(

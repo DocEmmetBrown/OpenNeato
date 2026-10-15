@@ -187,6 +187,10 @@ class OpenNeatoEsphomeClient:
             return None
         return state.state
 
+    def entity_state(self, entity_type: str, object_id: str) -> str | None:
+        """Raw state of a contract entity, None when missing/unknown/unavailable."""
+        return self._state(entity_type, object_id)
+
     def text(self, object_id: str) -> str:
         """State of a contract text sensor, empty when unknown."""
         return self._state("text_sensor", object_id) or ""

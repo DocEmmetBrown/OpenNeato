@@ -1,0 +1,139 @@
+blueprint:
+  name: OpenNeato cleaning calendar
+  description: >-
+    Start the robot when an event begins in a calendar of your choice, e.g. a
+    Local Calendar called "Neato". Works for one-off dates and any repeat rule,
+    any number of cleans a day.
+
+
+    The event title can steer the clean: "spot" runs a spot clean, and
+    "gentle", "deep", "quick" or "normal" picks that navigation mode first
+    (needs the Navigation mode entity below). Use a title keyword to share one
+    calendar with other things. The robot's own weekly schedule (the
+    OpenNeato "Schedule" calendar) runs on the bridge and does not need this.
+  domain: automation
+  source_url: https://github.com/Leicas/OpenNeato/blob/main/blueprints/automation/openneato/clean_on_calendar.yaml
+  input:
+    calendar:
+      name: Calendar
+      description: The calendar whose events start a clean.
+      selector:
+        entity:
+          filter:
+            - domain: calendar
+    vacuum:
+      name: Robot
+      selector:
+        entity:
+          filter:
+            - domain: vacuum
+    navigation_mode:
+      name: Navigation mode entity (optional)
+      description: >-
+        The robot's Navigation mode select, so "gentle", "deep", "quick" or
+        "normal" in an event title can pick it.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: select
+    keyword:
+      name: Title keyword (optional)
+      description: Only events whose title contains this text (case-insensitive). Empty = every event.
+      default: ""
+      selector:
+        text:
+    offset:
+      name: Offset
+      description: Start this long before (negative) or after the event begins.
+      default:
+        hours: 0
+        minutes: 0
+        seconds: 0
+      selector:
+        duration:
+          allow_negative: true
+    only_when_away:
+      name: Only when nobody is home
+      description: Skip the clean while anyone is in the Home zone.
+      default: false
+      selector:
+        boolean:
+    dock_at_end:
+      name: Return to base when the event ends
+      description: Send the robot home if it is still cleaning when the event ends.
+      default: false
+      selector:
+        boolean:
+
+mode: queued
+max: 5
+
+triggers:
+  - trigger: calendar
+    event: start
+    entity_id: !input calendar
+    offset: !input offset
+    id: start
+  - trigger: calendar
+    event: end
+    entity_id: !input calendar
+    id: end
+
+variables:
+  vacuum: !input vacuum
+  navigation_mode: !input navigation_mode
+  keyword: !input keyword
+  only_when_away: !input only_when_away
+  dock_at_end: !input dock_at_end
+  title: "{{ (trigger.calendar_event.summary | default('')) | lower }}"
+  nav_mode: >-
+    {% set ns = namespace(mode='') %}
+    {% for m in ['gentle', 'deep', 'quick', 'normal'] %}
+      {% if not ns.mode and m in title %}{% set ns.mode = m | capitalize %}{% endif %}
+    {% endfor %}
+    {{ ns.mode }}
+
+conditions:
+  - condition: template
+    value_template: "{{ not keyword or (keyword | lower) in title }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: start
+          - condition: template
+            value_template: "{{ not only_when_away or (states('zone.home') | int(0)) == 0 }}"
+          - condition: template
+            value_template: "{{ states(vacuum) in ['docked', 'idle'] }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ navigation_mode != '' and nav_mode != '' and nav_mode in (state_attr(navigation_mode, 'options') or []) }}"
+            then:
+              - action: select.select_option
+                target:
+                  entity_id: "{{ navigation_mode }}"
+                data:
+                  option: "{{ nav_mode }}"
+          - if:
+              - condition: template
+                value_template: "{{ 'spot' in title }}"
+            then:
+              - action: vacuum.clean_spot
+                target:
+                  entity_id: "{{ vacuum }}"
+            else:
+              - action: vacuum.start
+                target:
+                  entity_id: "{{ vacuum }}"
+      - conditions:
+          - condition: trigger
+            id: end
+          - condition: template
+            value_template: "{{ dock_at_end and states(vacuum) in ['cleaning', 'paused'] }}"
+        sequence:
+          - action: vacuum.return_to_base
+            target:
+              entity_id: "{{ vacuum }}"

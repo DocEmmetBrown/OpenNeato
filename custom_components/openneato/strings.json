@@ -407,6 +407,11 @@
           }
         }
       }
+    },
+    "calendar": {
+      "schedule": {
+        "name": "Schedule"
+      }
     }
   },
   "options": {

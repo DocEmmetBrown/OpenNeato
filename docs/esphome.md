@@ -65,7 +65,8 @@ Later updates are regular ESPHome OTA updates.
    **Add integration → OpenNeato → OpenNeato ESPHome firmware** and pick the device.
 
 The OpenNeato entry creates one device, the robot (named after the ESPHome node and linked to it as
-"connected via"), with the `vacuum` entity. Everything else is on the ESPHome device.
+"connected via"), with the `vacuum` entity and the `Schedule` calendar. Everything else is on the ESPHome
+device.
 
 ## 3. Cleaning history and the map card
 
@@ -85,7 +86,28 @@ of the ESPHome firmware: the live map card and cleaning controls, the weekly sch
 maintenance reminders, a manual-drive pad and diagnostics. Create a new dashboard, open its raw configuration
 editor and paste the file. It assumes the node is called `neato`; replace `neato_` otherwise.
 
-## 5. Notifications
+## 5. Scheduling
+
+**The robot's weekly schedule as a calendar.** The OpenNeato entry adds a `Schedule` calendar
+(`calendar.neato_schedule`) showing the bridge's own schedule (2 cleans per weekday, run on the bridge even
+when Home Assistant is down). Edit it from the Calendar panel:
+
+- **Add** an event with a start time that repeats weekly (pick the days) or daily: it takes a free slot on each
+  of those days and turns the schedule on. One-off and all-day events are refused.
+- **Move** it with *this and following events*: a new time keeps the slot, other days move it.
+- **Delete** *this event* on the next occurrence to skip it (`Skip next clean`), or the whole series to remove
+  the slot.
+
+Events last as long as the last clean (1 h until there is one) and are titled with the navigation mode.
+
+**Clean from any calendar.** For one-off dates, any repeat rule or more cleans a day, create a calendar (e.g.
+the *Local Calendar* integration, named "Neato") and use the cleaning-calendar blueprint. An event starting
+starts the robot; the title can say `spot`, or `gentle` / `deep` / `quick` / `normal` to pick the navigation
+mode. Options: an offset, a title keyword, only when nobody is home, and return to base when the event ends.
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLeicas%2FOpenNeato%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fopenneato%2Fclean_on_calendar.yaml)
+
+## 6. Notifications
 
 Both firmwares have a **Robot event** entity firing `cleaning_started`, `cleaning_done`, `docking_recharge`,
 `returned_to_base`, `error` and `alert`. The bundled blueprint turns them into notifications through any

@@ -302,6 +302,25 @@ views:
   max_columns: 4
   sections:
   - type: grid
+    column_span: 2
+    cards:
+    - type: heading
+      heading: Calendar
+      icon: mdi:calendar-month
+    - type: calendar
+      entities:
+      - calendar.neato_schedule
+      initial_view: listWeek
+      grid_options:
+        columns: full
+    - type: markdown
+      grid_options:
+        columns: full
+      content: 'Add a clean from the **Calendar** panel: pick a time and set it to **repeat weekly** (choose the days) or
+        daily. Each weekday holds up to 2 cleans. Deleting the next occurrence skips it; deleting the series removes it. The
+        schedule runs on the robot''s bridge, even when Home Assistant is down. For one-off cleans, use a Local Calendar with
+        the *OpenNeato cleaning calendar* blueprint.'
+  - type: grid
     cards:
     - type: heading
       heading: Schedule

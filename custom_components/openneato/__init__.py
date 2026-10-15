@@ -70,9 +70,9 @@ PLATFORMS: list[Platform] = [
 ]
 # On the ESPHome firmware every sensor, switch, number, select, button and the
 # robot event are native ESPHome entities; the integration only adds what
-# ESPHome cannot express: the vacuum entity, the replay card's history and the
-# LIDAR floor plan.
-ESPHOME_PLATFORMS: list[Platform] = [Platform.VACUUM]
+# ESPHome cannot express: the vacuum entity, the schedule as a calendar, the
+# replay card's history and the LIDAR floor plan.
+ESPHOME_PLATFORMS: list[Platform] = [Platform.VACUUM, Platform.CALENDAR]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
