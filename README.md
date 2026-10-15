@@ -113,6 +113,22 @@ by IP/hostname and exposes the robot as a full HA device — no YAML, no extra a
 The integration polls `/api/*` over your LAN every 5 seconds (`local_polling`). No cloud round-trip, no
 external dependencies. Requires firmware `1.0+`; battery diagnostics need firmware `0.13+` (upstream PR #121).
 
+### Alternative: ESPHome firmware
+
+Instead of the web-UI firmware, the bridge can run the **OpenNeato ESPHome firmware** ([`esphome/`](esphome/)):
+the robot's sensors, switches, buttons, schedule and robot events become native ESPHome entities, and this
+integration adds the vacuum entity, the cleaning history / replay card and the LIDAR floor plan on top. Home
+Assistant discovers the device; an existing entry for the same robot is migrated in place. See
+[docs/esphome.md](docs/esphome.md).
+
+### Notifications
+
+Both firmwares expose a **Robot event** entity (`cleaning_started`, `cleaning_done`, `docking_recharge`,
+`returned_to_base`, `error`, `alert`). The bundled [notification blueprint](blueprints/automation/openneato/notify.yaml)
+sends them to any `notify` action:
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLeicas%2FOpenNeato%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fopenneato%2Fnotify.yaml)
+
 ### What you get
 
 A single device with the following entity groups:
@@ -141,6 +157,11 @@ A single device with the following entity groups:
 - **Buttons** — restart bridge, restart robot, shutdown robot, locate, clear errors, format filesystem
   (diagnostic, disabled by default), **new battery** (resets fuel-gauge calibration after a physical pack
   swap, disabled by default for safety).
+- **Event** — `Robot event`: cleaning started/done, docking to recharge, returned to base, error, alert
+  (with a `message` attribute), for the [notification blueprint](#notifications).
+
+With the [ESPHome firmware](#alternative-esphome-firmware) the integration only adds the vacuum entity; the
+other entities above come from the ESPHome device.
 
 Every entity is translated via `strings.json`, and diagnostic-class entities (voltages, currents, raw
 sensor states) are tagged so they cluster cleanly under HA's Diagnostic section.
