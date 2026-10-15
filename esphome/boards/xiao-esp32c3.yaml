@@ -1,0 +1,12 @@
+# Seeed Studio XIAO ESP32C3 (pins from firmware/src/config.h).
+# Robot UART: D6/TX=GPIO21, D7/RX=GPIO20. Boot button: GPIO9 (hold 5 s = factory reset).
+substitutions:
+  tx_pin: GPIO21
+  rx_pin: GPIO20
+  reset_pin: GPIO9
+
+esp32:
+  board: seeed_xiao_esp32c3
+  variant: esp32c3
+  framework:
+    type: esp-idf

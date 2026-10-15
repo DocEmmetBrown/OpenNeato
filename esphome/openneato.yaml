@@ -1,0 +1,186 @@
+# OpenNeato ESPHome package — include from a board/device config (see examples/).
+#
+# Provides: the openneato hub (all Home Assistant contract entities), the API
+# actions used by the OpenNeato integration, OTA, Wi-Fi fallback AP + captive
+# portal + Improv, time sync (Home Assistant with SNTP fallback), the robot UART
+# and bridge diagnostics. Entity/action contract: ../docs/esphome-contract.md
+#
+# Required substitutions (set by boards/*.yaml): tx_pin, rx_pin, reset_pin.
+
+substitutions:
+  name: openneato
+  friendly_name: OpenNeato
+  log_level: INFO
+  openneato_version: "1.0.0"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.11.0
+  project:
+    name: openneato.esphome
+    version: ${openneato_version}
+
+logger:
+  level: ${log_level}
+
+api:
+  actions:
+    # house (start, or resume when paused), spot, pause, stop, dock -> {}
+    - action: clean
+      supports_response: optional
+      variables:
+        action: string
+      then:
+        - lambda: "id(neato).api_clean(action);"
+        - api.respond:
+            success: !lambda "return id(neato).last_ok();"
+            error_message: !lambda "return id(neato).last_error();"
+            data: !lambda "(void) root;"
+
+    # PlaySound SoundID 0-20 -> {}
+    - action: play_sound
+      supports_response: optional
+      variables:
+        sound_id: int
+      then:
+        - lambda: "id(neato).api_play_sound(sound_id);"
+        - api.respond:
+            success: !lambda "return id(neato).last_ok();"
+            error_message: !lambda "return id(neato).last_error();"
+            data: !lambda "(void) root;"
+
+    # SetUserSettings <key> <value> -> {}
+    - action: set_user_setting
+      supports_response: optional
+      variables:
+        key: string
+        value: string
+      then:
+        - lambda: "id(neato).api_set_user_setting(key, value);"
+        - api.respond:
+            success: !lambda "return id(neato).last_ok();"
+            error_message: !lambda "return id(neato).last_error();"
+            data: !lambda "(void) root;"
+
+    # Raw serial command; responds once the robot answered -> {"response": "..."}
+    - action: send_command
+      supports_response: optional
+      variables:
+        command: string
+      then:
+        - lambda: "id(neato).begin_send_command(call_id, command);"
+        - wait_until:
+            condition:
+              lambda: "return id(neato).request_done(call_id);"
+            timeout: 5s
+        - api.respond:
+            success: !lambda "return id(neato).request_ok(call_id);"
+            error_message: !lambda "return id(neato).request_error(call_id);"
+            data: !lambda "id(neato).request_fill(call_id, root);"
+        - lambda: "id(neato).end_request(call_id);"
+
+    # One LIDAR scan as compact arrays -> {"rotationSpeed", "validPoints", "dist", "intensity", "error"}
+    - action: get_lidar
+      supports_response: optional
+      then:
+        - lambda: "id(neato).begin_get_lidar(call_id);"
+        - wait_until:
+            condition:
+              lambda: "return id(neato).request_done(call_id);"
+            timeout: 5s
+        - api.respond:
+            success: !lambda "return id(neato).request_ok(call_id);"
+            error_message: !lambda "return id(neato).request_error(call_id);"
+            data: !lambda "id(neato).request_fill(call_id, root);"
+        - lambda: "id(neato).end_request(call_id);"
+
+    # Recorded poses with seq > since_seq (max 100) + current/previous session
+    - action: get_pose_batch
+      supports_response: optional
+      variables:
+        since_seq: int
+      then:
+        - api.respond:
+            data: !lambda "id(neato).api_pose_batch(since_seq, root);"
+
+    # Manual drive (manual mode only) -> {} or error "blocked" / "inactive"
+    - action: manual_move
+      supports_response: optional
+      variables:
+        left_mm: int
+        right_mm: int
+        speed: int
+      then:
+        - lambda: "id(neato).api_manual_move(left_mm, right_mm, speed);"
+        - api.respond:
+            success: !lambda "return id(neato).last_ok();"
+            error_message: !lambda "return id(neato).last_error();"
+            data: !lambda "(void) root;"
+
+ota:
+  - platform: esphome
+
+wifi:
+  ap:
+    ssid: ${friendly_name} Fallback
+
+captive_portal:
+
+improv_serial:
+
+time:
+  - platform: homeassistant
+    id: ha_time
+  # Fallback when Home Assistant is not connected (both set the system clock).
+  - platform: sntp
+    id: sntp_time
+
+uart:
+  id: robot_uart
+  tx_pin: ${tx_pin}
+  rx_pin: ${rx_pin}
+  baud_rate: 115200
+  rx_buffer_size: 4096
+
+openneato:
+  id: neato
+  uart_id: robot_uart
+  time_id: ha_time
+
+sensor:
+  - platform: uptime
+    name: Uptime
+    entity_category: diagnostic
+  - platform: wifi_signal
+    name: WiFi signal
+    update_interval: 60s
+    entity_category: diagnostic
+
+button:
+  - platform: restart
+    name: Restart bridge
+    entity_category: config
+  - platform: factory_reset
+    id: openneato_factory_reset
+    name: Factory reset bridge
+    entity_category: config
+    disabled_by_default: true
+
+binary_sensor:
+  # Hold the boot button for 5 s to wipe Wi-Fi credentials and settings.
+  - platform: gpio
+    id: openneato_reset_button
+    internal: true
+    pin:
+      number: ${reset_pin}
+      inverted: true
+      ignore_strapping_warning: true
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_on: 5s
+    on_press:
+      - logger.log: "Boot button held for 5 s: factory reset"
+      - button.press: openneato_factory_reset

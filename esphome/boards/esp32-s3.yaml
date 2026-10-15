@@ -1,0 +1,12 @@
+# ESP32-S3-DevKitC-1 (pins from firmware/src/config.h; GPIO19/20 are native USB).
+# Robot UART: TX=GPIO17, RX=GPIO18. Boot button: GPIO0 (hold 5 s = factory reset).
+substitutions:
+  tx_pin: GPIO17
+  rx_pin: GPIO18
+  reset_pin: GPIO0
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf

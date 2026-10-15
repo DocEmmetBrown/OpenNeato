@@ -1,0 +1,46 @@
+# OpenNeato on an ESP32-C3-DevKitM-1 — development config using the local
+# component and packages from this repository.
+#
+# For a regular install, replace the two `packages`/`external_components`
+# sources below with the GitHub ones (commented).
+substitutions:
+  name: openneato
+  friendly_name: OpenNeato
+
+packages:
+  board: !include ../boards/esp32-c3-devkitm-1.yaml
+  openneato: !include ../openneato.yaml
+  # From GitHub instead of a local checkout:
+  # openneato:
+  #   url: https://github.com/Leicas/OpenNeato
+  #   ref: main
+  #   refresh: 1d
+  #   files:
+  #     - esphome/boards/esp32-c3-devkitm-1.yaml
+  #     - esphome/openneato.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [openneato]
+  # From GitHub instead of a local checkout:
+  # - source: github://Leicas/OpenNeato@main
+  #   components: [openneato]
+  #   # (esphome/components in the repository is found automatically)
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    password: !secret ap_password
+
+# Optional per-entity overrides (keep the names; the integration finds
+# entities by name):
+# openneato:
+#   brush_rpm:
+#     disabled_by_default: false

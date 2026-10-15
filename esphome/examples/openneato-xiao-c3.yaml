@@ -1,0 +1,25 @@
+# OpenNeato on a xiao-esp32c3 board — see openneato-c3.yaml for the annotated version
+# (GitHub package/external_components sources, entity overrides).
+substitutions:
+  name: openneato
+  friendly_name: OpenNeato
+
+packages:
+  board: !include ../boards/xiao-esp32c3.yaml
+  openneato: !include ../openneato.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [openneato]
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    password: !secret ap_password

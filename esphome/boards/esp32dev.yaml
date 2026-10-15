@@ -1,0 +1,12 @@
+# Generic ESP32 (esp32dev) (pins from firmware/src/config.h; GPIO1/3 are the USB-UART bridge).
+# Robot UART: TX=GPIO17, RX=GPIO16. Boot button: GPIO0 (hold 5 s = factory reset).
+substitutions:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  reset_pin: GPIO0
+
+esp32:
+  board: esp32dev
+  variant: esp32
+  framework:
+    type: esp-idf

@@ -1,0 +1,26 @@
+# Build check: the component under the Arduino framework (ESP-IDF is the target).
+substitutions:
+  name: openneato-arduino
+  friendly_name: OpenNeato Arduino
+  tx_pin: GPIO3
+  rx_pin: GPIO4
+  reset_pin: GPIO9
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: arduino
+
+packages:
+  openneato: !include ../../openneato.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [openneato]
+
+wifi:
+  ssid: test
+  password: test-password

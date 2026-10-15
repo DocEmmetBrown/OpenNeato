@@ -1,0 +1,12 @@
+# ESP32-C3-DevKitM-1 (pins from firmware/src/config.h).
+# Robot UART: TX=GPIO3, RX=GPIO4. Boot button: GPIO9 (hold 5 s = factory reset).
+substitutions:
+  tx_pin: GPIO3
+  rx_pin: GPIO4
+  reset_pin: GPIO9
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: esp-idf
