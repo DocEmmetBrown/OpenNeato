@@ -1,0 +1,60 @@
+name: ESPHome firmware
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'esphome/**'
+      - '.github/workflows/esphome.yml'
+  pull_request:
+    paths:
+      - 'esphome/**'
+      - '.github/workflows/esphome.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and run
+        run: esphome/tests/run.sh
+
+  build:
+    name: Config + compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Cache PlatformIO / ESPHome build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.platformio
+            esphome/examples/.esphome
+          key: esphome-${{ runner.os }}-${{ hashFiles('esphome/openneato.yaml', 'esphome/boards/**') }}
+          restore-keys: esphome-${{ runner.os }}-
+
+      - name: Install ESPHome
+        run: pip install esphome
+
+      - name: Validate every board config
+        working-directory: esphome/examples
+        run: |
+          for config in openneato-*.yaml; do
+            echo "::group::$config"
+            esphome config "$config" > /dev/null
+            echo "::endgroup::"
+          done
+
+      - name: Compile ESP32-C3 (ESP-IDF)
+        working-directory: esphome/examples
+        run: esphome compile openneato-c3.yaml
