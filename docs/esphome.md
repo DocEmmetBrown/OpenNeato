@@ -78,7 +78,14 @@ Cleans with fewer than 3 poses are discarded by the device and by the integratio
 recorded. Home Assistant must be running during a clean to record its path. If it was not, the session still appears with
 its summary (duration, area, distance, battery) once Home Assistant reconnects, but without a path.
 
-## 4. Notifications
+## 4. Dashboard
+
+[`esphome/dashboard.yaml`](../esphome/dashboard.yaml) is a ready-made dashboard with every command and entity
+of the ESPHome firmware: the live map card and cleaning controls, the weekly schedule, robot settings and
+maintenance reminders, a manual-drive pad and diagnostics. Create a new dashboard, open its raw configuration
+editor and paste the file. It assumes the node is called `neato`; replace `neato_` otherwise.
+
+## 5. Notifications
 
 Both firmwares have a **Robot event** entity firing `cleaning_started`, `cleaning_done`, `docking_recharge`,
 `returned_to_base`, `error` and `alert`. The bundled blueprint turns them into notifications through any

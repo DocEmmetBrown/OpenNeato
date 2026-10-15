@@ -75,6 +75,12 @@ local component and packages).
 Holding the boot button for 5 s factory-resets the bridge (Wi-Fi credentials and restored
 settings). The `Restart bridge` / `Factory reset bridge` buttons do the same from Home Assistant.
 
+## Dashboard
+
+[`dashboard.yaml`](dashboard.yaml) is a Home Assistant dashboard with every command and entity (map card,
+cleaning controls, schedule, settings, manual drive, diagnostics). Paste it into a new dashboard's raw
+configuration editor; it assumes the node name `neato`.
+
 ## Hub options
 
 ```yaml

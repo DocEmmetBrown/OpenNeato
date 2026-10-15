@@ -1,0 +1,1236 @@
+# OpenNeato dashboard for the ESPHome firmware.
+#
+# Settings > Dashboards > Add dashboard > New dashboard from scratch, open it,
+# then the pencil > three dots > Raw configuration editor, and paste this file.
+#
+# Entity IDs assume the ESPHome node is called "neato" (substitution `name`)
+# and its friendly name "Neato". For another name, replace every "neato_" and
+# "vacuum.neato" below. Needs the OpenNeato integration (vacuum entity, map card).
+views:
+- title: Neato
+  path: neato
+  icon: mdi:robot-vacuum
+  type: sections
+  max_columns: 4
+  badges:
+  - type: entity
+    entity: sensor.neato_activity
+    show_name: false
+  - type: entity
+    entity: sensor.neato_battery
+    show_name: false
+  - type: entity
+    entity: binary_sensor.neato_robot_connected
+    show_name: true
+    name: Robot
+  - type: entity
+    entity: sensor.neato_error_message
+    show_name: false
+    visibility:
+    - condition: state
+      entity: binary_sensor.neato_problem
+      state: 'on'
+  sections:
+  - type: grid
+    column_span: 2
+    cards:
+    - type: custom:openneato-card
+      entity: vacuum.neato
+      expanded: true
+      state_content:
+      - state
+      - charging
+      - battery
+      - error_message
+      features:
+      - type: custom:openneato-replay
+        height: 420
+      - type: custom:openneato-controls
+        items:
+        - start
+        - pause
+        - stop
+        - dock
+        - spot
+        - locate
+      - type: custom:openneato-suction
+        fan_speeds:
+        - eco
+        - normal
+        - intense
+      - type: custom:openneato-configuration
+        items:
+        - navigation_mode
+        - stealth_led
+      grid_options:
+        columns: full
+  - type: grid
+    cards:
+    - type: heading
+      heading: Clean
+      icon: mdi:robot-vacuum
+    - type: tile
+      entity: button.neato_start_house_clean
+      name: House
+      icon: mdi:play
+      hide_state: true
+      vertical: true
+      tap_action: &id001
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_start_house_clean
+      icon_tap_action: *id001
+      grid_options:
+        columns: 4
+        rows: 2
+      color: green
+    - type: tile
+      entity: button.neato_start_spot_clean
+      name: Spot
+      icon: mdi:target
+      hide_state: true
+      vertical: true
+      tap_action: &id002
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_start_spot_clean
+      icon_tap_action: *id002
+      grid_options:
+        columns: 4
+        rows: 2
+      color: green
+    - type: tile
+      entity: button.neato_pause
+      name: Pause
+      icon: mdi:pause
+      hide_state: true
+      vertical: true
+      tap_action: &id003
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_pause
+      icon_tap_action: *id003
+      grid_options:
+        columns: 4
+        rows: 2
+      color: amber
+    - type: tile
+      entity: button.neato_stop
+      name: Stop
+      icon: mdi:stop
+      hide_state: true
+      vertical: true
+      tap_action: &id004
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_stop
+      icon_tap_action: *id004
+      grid_options:
+        columns: 4
+        rows: 2
+      color: red
+    - type: tile
+      entity: button.neato_return_to_base
+      name: Dock
+      icon: mdi:home-import-outline
+      hide_state: true
+      vertical: true
+      tap_action: &id005
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_return_to_base
+      icon_tap_action: *id005
+      grid_options:
+        columns: 4
+        rows: 2
+      color: blue
+    - type: tile
+      entity: button.neato_locate
+      name: Locate
+      icon: mdi:map-marker-question
+      hide_state: true
+      vertical: true
+      tap_action: &id006
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_locate
+      icon_tap_action: *id006
+      grid_options:
+        columns: 4
+        rows: 2
+    - type: tile
+      entity: select.neato_navigation_mode
+      name: Navigation mode
+      features:
+      - type: select-options
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_eco_mode
+      name: Eco mode
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_intense_clean
+      name: Intense clean
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Status
+      icon: mdi:information-outline
+    - type: tile
+      entity: sensor.neato_activity
+      name: Activity
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_battery
+      name: Battery
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_charging
+      name: Charging
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_dustbin
+      name: Dust bin
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_next_clean
+      name: Next clean
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_error_message
+      name: Message
+      grid_options:
+        columns: 12
+      visibility:
+      - condition: state
+        entity: sensor.neato_error_message
+        state_not: ''
+    - type: tile
+      entity: button.neato_clear_errors
+      name: Clear errors
+      icon: mdi:alert-remove
+      hide_state: true
+      vertical: true
+      tap_action: &id007
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_clear_errors
+      icon_tap_action: *id007
+      grid_options:
+        columns: 4
+        rows: 2
+      color: red
+  - type: grid
+    cards:
+    - type: heading
+      heading: Last clean
+      icon: mdi:history
+    - type: tile
+      entity: sensor.neato_clean_started
+      name: Started
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_clean_duration
+      name: Duration
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_clean_area
+      name: Area
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_clean_distance
+      name: Distance
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_clean_battery_used
+      name: Battery used
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_clean_recharges
+      name: Recharges
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_total_cleaning_time
+      name: Total cleaning
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Events
+      icon: mdi:bell-outline
+    - type: logbook
+      target:
+        entity_id:
+        - event.neato_robot_event
+        - sensor.neato_activity
+        - sensor.neato_error_message
+      hours_to_show: 48
+      grid_options:
+        columns: 12
+        rows: 6
+- title: Schedule
+  path: neato-schedule
+  icon: mdi:calendar-clock
+  type: sections
+  max_columns: 4
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Schedule
+      icon: mdi:calendar-check
+    - type: tile
+      entity: switch.neato_schedule
+      name: Schedule
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_next_clean
+      name: Next clean
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_skip_next_clean
+      name: Skip next clean
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_restart_before_clean
+      name: Restart robot before clean
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: select.neato_navigation_mode
+      name: Navigation mode
+      features:
+      - type: select-options
+      grid_options:
+        columns: 12
+  - type: grid
+    cards:
+    - type: heading
+      heading: Monday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_monday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_monday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_monday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_monday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tuesday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_tuesday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_tuesday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_tuesday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_tuesday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Wednesday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_wednesday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_wednesday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_wednesday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_wednesday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Thursday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_thursday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_thursday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_thursday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_thursday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Friday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_friday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_friday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_friday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_friday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Saturday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_saturday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_saturday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_saturday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_saturday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Sunday
+      icon: mdi:calendar
+    - type: tile
+      entity: switch.neato_schedule_sunday_1
+      name: Slot 1
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_sunday_1_time
+      name: Time
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: switch.neato_schedule_sunday_2
+      name: Slot 2
+      features:
+      - type: toggle
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: time.neato_schedule_sunday_2_time
+      name: Time
+      grid_options:
+        columns: 6
+- title: Settings
+  path: neato-settings
+  icon: mdi:cog
+  type: sections
+  max_columns: 4
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Robot settings
+      icon: mdi:tune
+    - type: tile
+      entity: switch.neato_bin_full_detection
+      name: Bin full detection
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_wall_following
+      name: Wall following
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_stealth_led
+      name: Stealth LED
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_button_click_sound
+      name: Button click sound
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_melodies
+      name: Melodies
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_warning_sounds
+      name: Warning sounds
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+  - type: grid
+    cards:
+    - type: heading
+      heading: Maintenance reminders
+      icon: mdi:wrench-clock
+    - type: tile
+      entity: number.neato_filter_change_interval
+      name: Filter change
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+    - type: tile
+      entity: number.neato_brush_change_interval
+      name: Brush change
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+    - type: tile
+      entity: number.neato_dirt_bin_reminder
+      name: Dirt bin
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+    - type: tile
+      entity: button.neato_new_battery
+      name: New battery
+      icon: mdi:battery-plus
+      hide_state: true
+      vertical: true
+      tap_action: &id008
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_new_battery
+        confirmation:
+          text: 'Only after fitting a new battery: this resets the robot''s fuel gauge.'
+      icon_tap_action: *id008
+      grid_options:
+        columns: 4
+        rows: 2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Sounds
+      icon: mdi:music
+    - type: tile
+      entity: select.neato_sound
+      name: Sound
+      features:
+      - type: select-options
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: button.neato_play_sound
+      name: Play
+      icon: mdi:volume-high
+      hide_state: true
+      vertical: true
+      tap_action: &id009
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_play_sound
+      icon_tap_action: *id009
+      grid_options:
+        columns: 4
+        rows: 2
+    - type: tile
+      entity: button.neato_locate
+      name: Locate
+      icon: mdi:map-marker-question
+      hide_state: true
+      vertical: true
+      tap_action: &id010
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_locate
+      icon_tap_action: *id010
+      grid_options:
+        columns: 4
+        rows: 2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Robot
+      icon: mdi:robot-vacuum
+    - type: tile
+      entity: button.neato_clear_errors
+      name: Clear errors
+      icon: mdi:alert-remove
+      hide_state: true
+      vertical: true
+      tap_action: &id011
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_clear_errors
+      icon_tap_action: *id011
+      grid_options:
+        columns: 4
+        rows: 2
+    - type: tile
+      entity: button.neato_sync_robot_clock
+      name: Sync clock
+      icon: mdi:clock-check
+      hide_state: true
+      vertical: true
+      tap_action: &id012
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_sync_robot_clock
+      icon_tap_action: *id012
+      grid_options:
+        columns: 4
+        rows: 2
+    - type: tile
+      entity: button.neato_restart_robot
+      name: Restart robot
+      icon: mdi:restart
+      hide_state: true
+      vertical: true
+      tap_action: &id013
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_restart_robot
+        confirmation:
+          text: Restart the robot?
+      icon_tap_action: *id013
+      grid_options:
+        columns: 4
+        rows: 2
+      color: amber
+    - type: tile
+      entity: button.neato_shut_down_robot
+      name: Shut down
+      icon: mdi:power
+      hide_state: true
+      vertical: true
+      tap_action: &id014
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_shut_down_robot
+        confirmation:
+          text: Shut the robot down? It must be woken up by hand.
+      icon_tap_action: *id014
+      grid_options:
+        columns: 4
+        rows: 2
+      color: red
+  - type: grid
+    cards:
+    - type: heading
+      heading: Bridge
+      icon: mdi:access-point
+    - type: tile
+      entity: binary_sensor.neato_robot_connected
+      name: Robot connected
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_wifi_signal
+      name: WiFi signal
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_uptime
+      name: Uptime
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: button.neato_restart_bridge
+      name: Restart bridge
+      icon: mdi:restart
+      hide_state: true
+      vertical: true
+      tap_action: &id015
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_restart_bridge
+        confirmation:
+          text: Restart the ESP32 bridge?
+      icon_tap_action: *id015
+      grid_options:
+        columns: 4
+        rows: 2
+      color: amber
+- title: Manual drive
+  path: neato-manual
+  icon: mdi:gamepad-variant
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Manual mode
+      icon: mdi:gamepad-variant
+    - type: tile
+      entity: switch.neato_manual_mode
+      name: Manual mode
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+    - type: markdown
+      grid_options:
+        columns: 12
+      content: Turn **Manual mode** on first. Each press drives one short step; the robot stops on its own after 5 s without
+        a command, on a bumper hit, a lifted wheel or a stall.
+    - type: tile
+      entity: switch.neato_manual_brush
+      name: Brush
+      features:
+      - type: toggle
+      grid_options:
+        columns: 4
+    - type: tile
+      entity: switch.neato_manual_vacuum
+      name: Vacuum
+      features:
+      - type: toggle
+      grid_options:
+        columns: 4
+    - type: tile
+      entity: switch.neato_manual_side_brush
+      name: Side brush
+      features:
+      - type: toggle
+      grid_options:
+        columns: 4
+  - type: grid
+    cards:
+    - type: heading
+      heading: Drive
+      icon: mdi:steering
+    - type: conditional
+      conditions:
+      - condition: state
+        entity: switch.neato_manual_mode
+        state: 'on'
+      card:
+        type: grid
+        columns: 3
+        square: true
+        cards:
+        - type: button
+          name: Left
+          icon: mdi:rotate-left
+          show_state: false
+          tap_action: &id016
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: -100
+              right_mm: 100
+              speed: 150
+          hold_action: *id016
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Forward
+          icon: mdi:arrow-up-bold
+          show_state: false
+          tap_action: &id017
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: 300
+              right_mm: 300
+              speed: 150
+          hold_action: *id017
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Right
+          icon: mdi:rotate-right
+          show_state: false
+          tap_action: &id018
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: 100
+              right_mm: -100
+              speed: 150
+          hold_action: *id018
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Back left
+          icon: mdi:arrow-bottom-left-bold-outline
+          show_state: false
+          tap_action: &id019
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: -200
+              right_mm: -100
+              speed: 150
+          hold_action: *id019
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Stop
+          icon: mdi:stop-circle
+          show_state: false
+          tap_action: &id020
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: 0
+              right_mm: 0
+              speed: 0
+          hold_action: *id020
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Back right
+          icon: mdi:arrow-bottom-right-bold-outline
+          show_state: false
+          tap_action: &id021
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: -100
+              right_mm: -200
+              speed: 150
+          hold_action: *id021
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Spin left
+          icon: mdi:restore
+          show_state: false
+          tap_action: &id022
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: -200
+              right_mm: 200
+              speed: 150
+          hold_action: *id022
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Back
+          icon: mdi:arrow-down-bold
+          show_state: false
+          tap_action: &id023
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: -200
+              right_mm: -200
+              speed: 150
+          hold_action: *id023
+          grid_options:
+            columns: 4
+            rows: 2
+        - type: button
+          name: Spin right
+          icon: mdi:reload
+          show_state: false
+          tap_action: &id024
+            action: perform-action
+            perform_action: esphome.neato_manual_move
+            data:
+              left_mm: 200
+              right_mm: -200
+              speed: 150
+          hold_action: *id024
+          grid_options:
+            columns: 4
+            rows: 2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Safety
+      icon: mdi:shield-alert-outline
+    - type: tile
+      entity: binary_sensor.neato_stall_front
+      name: Stall front
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_stall_rear
+      name: Stall rear
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_front_left_bumper
+      name: Front left
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_front_right_bumper
+      name: Front right
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_side_left_bumper
+      name: Side left
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_side_right_bumper
+      name: Side right
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_wheel_lifted
+      name: Wheel lifted
+      grid_options:
+        columns: 12
+  - type: grid
+    cards:
+    - type: heading
+      heading: Motor settings
+      icon: mdi:engine
+    - type: tile
+      entity: number.neato_manual_brush_speed
+      name: Brush speed
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+    - type: tile
+      entity: number.neato_manual_vacuum_speed
+      name: Vacuum speed
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+    - type: tile
+      entity: number.neato_manual_side_brush_power
+      name: Side brush power
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+    - type: tile
+      entity: number.neato_stall_threshold
+      name: Stall threshold
+      features:
+      - type: numeric-input
+        style: buttons
+      grid_options:
+        columns: 6
+        rows: 2
+- title: Diagnostics
+  path: neato-diagnostics
+  icon: mdi:stethoscope
+  type: sections
+  max_columns: 4
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Battery
+      icon: mdi:battery-heart-variant
+    - type: tile
+      entity: sensor.neato_battery
+      name: Level
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_battery_voltage
+      name: Voltage
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_battery_current
+      name: Current
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_battery_temperature
+      name: Temperature
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_external_voltage
+      name: Dock voltage
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_battery_cycles
+      name: Cycles
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_external_power
+      name: External power
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_battery_overheating
+      name: Overheating
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_battery_failure
+      name: Battery failure
+      grid_options:
+        columns: 12
+    - type: history-graph
+      title: Last 24 h
+      hours_to_show: 24
+      entities:
+      - sensor.neato_battery
+      - sensor.neato_battery_voltage
+      grid_options:
+        columns: 12
+        rows: 4
+  - type: grid
+    cards:
+    - type: heading
+      heading: State
+      icon: mdi:state-machine
+    - type: tile
+      entity: sensor.neato_activity
+      name: Activity
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_ui_state
+      name: UI state
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_robot_state
+      name: Robot state
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_error_code
+      name: Error code
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_error_kind
+      name: Error kind
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: binary_sensor.neato_problem
+      name: Problem
+      grid_options:
+        columns: 12
+  - type: grid
+    cards:
+    - type: heading
+      heading: Motors
+      icon: mdi:engine
+    - type: markdown
+      grid_options:
+        columns: 12
+      content: 'These sensors are disabled by default: enable them on the ESPHome device to fill this section.'
+    - type: tile
+      entity: sensor.neato_brush_rpm
+      name: Brush
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_vacuum_rpm
+      name: Vacuum
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_left_wheel_load
+      name: Left wheel
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_right_wheel_load
+      name: Right wheel
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.neato_lds_rpm
+      name: LIDAR
+      grid_options:
+        columns: 12
+  - type: grid
+    cards:
+    - type: heading
+      heading: Versions
+      icon: mdi:chip
+    - type: tile
+      entity: sensor.neato_model
+      name: Model
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_serial_number
+      name: Serial
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_robot_firmware
+      name: Robot firmware
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_lds_firmware
+      name: LIDAR firmware
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: sensor.neato_main_board
+      name: Main board
+      grid_options:
+        columns: 12
