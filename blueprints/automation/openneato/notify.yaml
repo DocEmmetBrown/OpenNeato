@@ -1,0 +1,117 @@
+blueprint:
+  name: OpenNeato notifications
+  description: >-
+    Send a notification when an OpenNeato robot starts or finishes cleaning,
+    docks, or reports an error or alert. Works with the "Robot event" entity of
+    both the OpenNeato integration (web UI firmware) and the OpenNeato ESPHome
+    firmware. Replaces the bridge's ntfy notifications.
+  domain: automation
+  source_url: https://github.com/Leicas/OpenNeato/blob/main/blueprints/automation/openneato/notify.yaml
+  input:
+    robot_event:
+      name: Robot event entity
+      description: The robot's "Robot event" entity.
+      selector:
+        entity:
+          filter:
+            - domain: event
+    notify_action:
+      name: Notify action
+      description: >-
+        The notify action to call, e.g. notify.mobile_app_my_phone or
+        notify.notify.
+      default: notify.notify
+      selector:
+        text:
+    on_started:
+      name: Cleaning started
+      default: true
+      selector:
+        boolean:
+    on_done:
+      name: Cleaning done
+      default: true
+      selector:
+        boolean:
+    on_recharge:
+      name: Returning to base to recharge
+      default: true
+      selector:
+        boolean:
+    on_returned:
+      name: Returned to base
+      default: false
+      selector:
+        boolean:
+    on_error:
+      name: Errors
+      default: true
+      selector:
+        boolean:
+    on_alert:
+      name: Alerts (bin full, brush change, ...)
+      default: true
+      selector:
+        boolean:
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: !input robot_event
+
+variables:
+  notify_action: !input notify_action
+  enabled:
+    cleaning_started: !input on_started
+    cleaning_done: !input on_done
+    docking_recharge: !input on_recharge
+    returned_to_base: !input on_returned
+    error: !input on_error
+    alert: !input on_alert
+  event_type: "{{ trigger.to_state.attributes.event_type | default('') }}"
+  device: "{{ device_id(trigger.entity_id) }}"
+  device_sensors: "{{ device_entities(device) | select('match', 'sensor[.]') | list if device else [] }}"
+  defaults:
+    cleaning_started: Cleaning started
+    cleaning_done: Cleaning done
+    docking_recharge: Returning to base to recharge
+    returned_to_base: Returned to base
+    error: Error
+    alert: Alert
+  title: "{{ (device_attr(device, 'name_by_user') or device_attr(device, 'name')) if device else 'Robot' }}"
+  message: >-
+    {% set attr_message = trigger.to_state.attributes.message | default('') %}
+    {% if attr_message %}
+      {{ attr_message }}
+    {% elif event_type in ['error', 'alert'] %}
+      {% set sensor = device_sensors | select('search', 'error_message$') | first | default(none) %}
+      {% set text = states(sensor) if sensor else '' %}
+      {{ text if text not in ['', 'unknown', 'unavailable'] else defaults[event_type] }}
+    {% elif event_type == 'cleaning_done' %}
+      {% set dur = device_sensors | select('search', 'clean_duration$') | first | default(none) %}
+      {% set area = device_sensors | select('search', 'clean_area$') | first | default(none) %}
+      {% set ns = namespace(parts=[]) %}
+      {% if dur and states(dur) | is_number %}{% set ns.parts = ns.parts + [((states(dur) | float) // 60) | int ~ 'min'] %}{% endif %}
+      {% if area and states(area) | is_number %}{% set ns.parts = ns.parts + [(states(area) | float) | round(1) ~ 'm²'] %}{% endif %}
+      {{ defaults[event_type] }}{{ ' — ' ~ ns.parts | join(' | ') if ns.parts else '' }}
+    {% else %}
+      {{ defaults.get(event_type, event_type) }}
+    {% endif %}
+
+conditions:
+  # Skip the entity coming back after a disconnect (it restores its last event).
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state.state not in ['unavailable', 'unknown'] }}
+  - condition: template
+    value_template: "{{ enabled.get(event_type, false) }}"
+
+actions:
+  - action: "{{ notify_action }}"
+    data:
+      title: "{{ title }}"
+      message: "{{ message | trim }}"
