@@ -50,6 +50,7 @@ async def async_setup_entry(
                 sw_version=data["sw_version"],
                 fw_version=data["fw_version"],
                 host=data["host"],
+                via_device_id=data.get("via_device_id"),
             )
         ]
     )
@@ -71,11 +72,13 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
         sw_version: str | None = None,
         fw_version: str | None = None,
         host: str | None = None,
+        via_device_id: str | None = None,
     ) -> None:
         """Initialize the vacuum entity."""
         super().__init__(
             coordinator, serial,
             model=model, sw_version=sw_version, fw_version=fw_version, host=host,
+            via_device_id=via_device_id,
         )
         self._api = api
         self._attr_unique_id = f"{serial}_vacuum"

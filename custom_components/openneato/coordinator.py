@@ -111,7 +111,9 @@ class OpenNeatoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # lack some of them; polling a missing route every minute would only
         # fill the log, so each is dropped after its first 404 until the
         # integration reloads (a firmware OTA needs a reload to be noticed).
-        self.unsupported: set[str] = set()
+        # A backend can declare sections it never serves (the ESPHome firmware
+        # exposes those as native entities) so they are not even tried.
+        self.unsupported: set[str] = set(getattr(api, "unsupported_sections", ()))
         self._fetchers: dict[str, Callable[[], Awaitable[Any]]] = {
             "state": api.get_state,
             "charger": api.get_charger,

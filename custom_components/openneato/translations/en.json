@@ -2,20 +2,45 @@
   "config": {
     "step": {
       "user": {
+        "title": "Add an OpenNeato robot",
+        "description": "Which firmware does the robot's bridge run?",
+        "menu_options": {
+          "esphome": "OpenNeato ESPHome firmware",
+          "http": "OpenNeato firmware (web UI)"
+        }
+      },
+      "http": {
         "title": "Connect to OpenNeato",
         "description": "Enter the IP address or hostname of your OpenNeato robot.",
         "data": {
           "host": "Host"
         }
+      },
+      "esphome": {
+        "title": "OpenNeato ESPHome device",
+        "description": "Pick the ESPHome device running the OpenNeato ESPHome firmware. It must already be set up in the ESPHome integration.",
+        "data": {
+          "device_id": "Device"
+        }
+      },
+      "esphome_confirm": {
+        "title": "OpenNeato ESPHome device found",
+        "description": "Set up {name}? The device must first be added to the ESPHome integration (Settings → Devices & services); the robot's sensors, switches and buttons come from there, OpenNeato adds the vacuum, the cleaning history and the LIDAR floor plan."
       }
     },
     "error": {
       "cannot_connect": "Unable to connect to the robot. Please check the host and try again.",
-      "unknown": "An unexpected error occurred."
+      "unknown": "An unexpected error occurred.",
+      "not_openneato_esphome": "That device is not running the OpenNeato ESPHome firmware.",
+      "esphome_not_set_up": "The device is not set up in the ESPHome integration yet. Add it there first, then submit again."
     },
     "abort": {
-      "already_configured": "This robot is already configured."
-    }
+      "already_configured": "This robot is already configured.",
+      "not_openneato_esphome": "That device is not running the OpenNeato ESPHome firmware.",
+      "migrated_to_esphome": "The existing entry for this robot now uses the ESPHome firmware.",
+      "already_in_progress": "Setup of this robot is already in progress."
+    },
+    "flow_title": "{name}"
   },
   "entity": {
     "sensor": {
@@ -364,6 +389,23 @@
       },
       "schedule_sunday_2": {
         "name": "Schedule Sunday 2"
+      }
+    },
+    "event": {
+      "robot_event": {
+        "name": "Robot event",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "cleaning_started": "Cleaning started",
+              "cleaning_done": "Cleaning done",
+              "docking_recharge": "Returning to recharge",
+              "returned_to_base": "Returned to base",
+              "error": "Error",
+              "alert": "Alert"
+            }
+          }
+        }
       }
     }
   },

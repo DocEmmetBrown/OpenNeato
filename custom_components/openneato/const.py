@@ -4,6 +4,12 @@ from homeassistant.components.vacuum import VacuumActivity
 
 DOMAIN = "openneato"
 CONF_HOST = "host"
+# Which firmware the entry talks to: the HTTP bridge (default, entries created
+# before the ESPHome backend have no `backend` key) or the ESPHome firmware.
+CONF_BACKEND = "backend"
+CONF_DEVICE_ID = "device_id"
+BACKEND_HTTP = "http"
+BACKEND_ESPHOME = "esphome"
 DEFAULT_POLL_INTERVAL = 5  # seconds
 
 # ── Polling budget (issue #13) ──────────────────────────────────────

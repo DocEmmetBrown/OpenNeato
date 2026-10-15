@@ -1,7 +1,10 @@
 {
   "domain": "openneato",
   "name": "OpenNeato",
-  "after_dependencies": ["lovelace"],
+  "after_dependencies": [
+    "esphome",
+    "lovelace"
+  ],
   "codeowners": [
     "@Leicas"
   ],
@@ -15,5 +18,13 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Leicas/OpenNeato/issues",
   "requirements": [],
-  "version": "1.14.1"
+  "version": "1.14.1",
+  "zeroconf": [
+    {
+      "type": "_esphomelib._tcp.local.",
+      "properties": {
+        "project_name": "openneato.esphome"
+      }
+    }
+  ]
 }

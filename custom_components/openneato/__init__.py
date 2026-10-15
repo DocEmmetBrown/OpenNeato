@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import discovery_flow
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
@@ -17,6 +21,9 @@ from . import websocket
 from .api import OpenNeatoApiClient, OpenNeatoConnectionError
 from .card import async_register_card, async_remove_card_resource
 from .const import (
+    BACKEND_ESPHOME,
+    CONF_BACKEND,
+    CONF_DEVICE_ID,
     CONF_HOST,
     CONF_MAP_ENABLED,
     DOMAIN,
@@ -25,6 +32,12 @@ from .const import (
     MAP_DEFAULT_ENABLED,
 )
 from .coordinator import OpenNeatoCoordinator
+from .esphome_backend import (
+    OpenNeatoEsphomeClient,
+    is_openneato_esphome_device,
+    openneato_esphome_devices,
+)
+from .esphome_history import EsphomeSessionRecorder
 from .firmware_check import FIRMWARE_UNSUPPORTED, classify_firmware
 from .http import OpenNeatoMapView
 from .lidar_runner import LidarMapRunner
@@ -53,7 +66,13 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.TEXT,
     Platform.TIME,
+    Platform.EVENT,
 ]
+# On the ESPHome firmware every sensor, switch, number, select, button and the
+# robot event are native ESPHome entities; the integration only adds what
+# ESPHome cannot express: the vacuum entity, the replay card's history and the
+# LIDAR floor plan.
+ESPHOME_PLATFORMS: list[Platform] = [Platform.VACUUM]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -65,11 +84,64 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     the dashboards at every start even while the robot is offline.
     """
     await async_register_card(hass)
+    _async_setup_esphome_discovery(hass)
     return True
+
+
+@callback
+def _async_setup_esphome_discovery(hass: HomeAssistant) -> None:
+    """Offer a config flow for every OpenNeato ESPHome device.
+
+    ESPHome devices are adopted by the ESPHome integration; the device it
+    creates reports manufacturer `openneato` / model `esphome` (from the
+    firmware's `project: name:`), which is what is matched here.
+    """
+
+    @callback
+    def _discover(device: dr.DeviceEntry) -> None:
+        if not is_openneato_esphome_device(hass, device):
+            return
+        if any(
+            entry.data.get(CONF_DEVICE_ID) == device.id
+            for entry in hass.config_entries.async_entries(DOMAIN, include_ignore=False)
+        ):
+            return
+        discovery_flow.async_create_flow(
+                hass,
+                DOMAIN,
+                context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                data={CONF_DEVICE_ID: device.id},
+            )
+
+    @callback
+    def _discover_all(_event: Event | None = None) -> None:
+        for device in openneato_esphome_devices(hass):
+            _discover(device)
+
+    @callback
+    def _device_updated(event: Event[dr.EventDeviceRegistryUpdatedData]) -> None:
+        if event.data["action"] not in ("create", "update"):
+            return
+        if (device := dr.async_get(hass).async_get(event.data["device_id"])) is not None:
+            _discover(device)
+
+    hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, _device_updated)
+    if hass.is_running:
+        _discover_all()
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _discover_all)
+
+
+def _entry_platforms(entry: ConfigEntry) -> list[Platform]:
+    if entry.data.get(CONF_BACKEND) == BACKEND_ESPHOME:
+        return ESPHOME_PLATFORMS
+    return PLATFORMS
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OpenNeato from a config entry."""
+    if entry.data.get(CONF_BACKEND) == BACKEND_ESPHOME:
+        return await _async_setup_esphome_entry(hass, entry)
     host = entry.data[CONF_HOST]
     session = async_get_clientsession(hass)
     api = OpenNeatoApiClient(host, session)
@@ -128,6 +200,95 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = OpenNeatoCoordinator(hass, api)
     await coordinator.async_config_entry_first_refresh()
 
+    await _async_finish_setup(
+        hass,
+        entry,
+        api,
+        coordinator,
+        {
+            "serial": serial,
+            "model": model,
+            "sw_version": sw_version,
+            "fw_version": fw_version,
+            "host": host,
+        },
+    )
+    return True
+
+
+async def _async_setup_esphome_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up a robot running the OpenNeato ESPHome firmware."""
+    client = OpenNeatoEsphomeClient(hass, entry.data[CONF_DEVICE_ID])
+    if client.device is None:
+        raise ConfigEntryNotReady("The OpenNeato ESPHome device is not in the device registry")
+    if not client.available():
+        raise ConfigEntryNotReady("The OpenNeato ESPHome device is not connected")
+
+    # An entry migrated from the HTTP firmware still owns the entities of the
+    # platforms that ESPHome now provides natively; drop them.
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.domain not in ESPHOME_PLATFORMS:
+            registry.async_remove(entity.entity_id)
+
+    recorder = EsphomeSessionRecorder(hass, entry.entry_id, client)
+    await recorder.async_load()
+    client.recorder = recorder
+
+    coordinator = OpenNeatoCoordinator(hass, client)
+    await coordinator.async_config_entry_first_refresh()
+
+    robot_info = await client.get_robot_version()
+    firmware_info = await client.get_firmware_version()
+    # Entity unique IDs are keyed on the robot serial (as with the HTTP
+    # firmware, so a migrated entry keeps its vacuum entity); wait for the
+    # robot to report it rather than inventing a key that changes later.
+    serial = entry.data.get("serial") or robot_info.get("serialNumber")
+    if not serial:
+        raise ConfigEntryNotReady("The robot has not reported its serial number yet")
+    if entry.data.get("serial") != serial:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "serial": serial})
+
+    await _async_finish_setup(
+        hass,
+        entry,
+        client,
+        coordinator,
+        {
+            "serial": serial,
+            "model": robot_info.get("modelName") or entry.data.get("model"),
+            "sw_version": robot_info.get("softwareVersion"),
+            "fw_version": firmware_info.get("version"),
+            "host": None,
+            "via_device_id": client.device_id,
+            "recorder": recorder,
+        },
+    )
+
+    # Re-read the history section as soon as a session starts or ends so the
+    # card and the last-clean sensors do not wait for the slow cadence.
+    entry.async_on_unload(recorder.async_add_listener(_refresh_later(hass, coordinator)))
+    recorder.async_start()
+    entry.async_on_unload(recorder.async_stop)
+    return True
+
+
+def _refresh_later(hass: HomeAssistant, coordinator: OpenNeatoCoordinator):
+    @callback
+    def _refresh() -> None:
+        hass.async_create_task(coordinator.async_request_refresh())
+
+    return _refresh
+
+
+async def _async_finish_setup(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    api: Any,
+    coordinator: OpenNeatoCoordinator,
+    info: dict[str, Any],
+) -> None:
+    """Shared tail of the HTTP and ESPHome setups."""
     hass.data.setdefault(DOMAIN, {})
     await _async_register_frontend(hass)
 
@@ -143,21 +304,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api": api,
         "coordinator": coordinator,
         "mapper": mapper,
-        "serial": serial,
-        "model": model,
-        "sw_version": sw_version,
-        "fw_version": fw_version,
-        "host": host,
+        **info,
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, _entry_platforms(entry))
 
     # Reload the entry when its options change (e.g. floorplan background
     # calibration) so camera entities pick up the new config without a
     # full HA restart.
     entry.async_on_unload(entry.add_update_listener(async_reload_options))
-
-    return True
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -181,7 +336,9 @@ async def async_reload_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an OpenNeato config entry."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    if unload_ok := await hass.config_entries.async_unload_platforms(
+        entry, _entry_platforms(entry)
+    ):
         stored = hass.data[DOMAIN].pop(entry.entry_id)
         if stored.get("mapper"):
             stored["mapper"].async_unload()
@@ -196,7 +353,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove the card from the dashboards with the last OpenNeato robot."""
+    """Drop recorded sessions; remove the card with the last OpenNeato robot."""
+    if entry.data.get(CONF_BACKEND) == BACKEND_ESPHOME:
+        client = OpenNeatoEsphomeClient(hass, entry.data[CONF_DEVICE_ID])
+        await EsphomeSessionRecorder(hass, entry.entry_id, client).async_remove_all()
     others = [
         other
         for other in hass.config_entries.async_entries(DOMAIN)
