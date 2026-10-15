@@ -2867,6 +2867,7 @@ class OpenNeatoReplay extends HTMLElement {
 /* ── what the robot's device offers ─────────────────────────────────── */
 
 const INTEGRATION = "openneato";
+const ESPHOME = "esphome";
 const CARD_TYPE = "openneato-card";
 const REPLAY_TYPE = "openneato-replay";
 const CONTROLS_TYPE = "openneato-controls";
@@ -2901,12 +2902,21 @@ function robotOfEntry(hass, entryId) {
     });
 }
 
-// The other entities of the robot's device, in the domains given
+// The other entities of the robot, in the domains given: those of its own
+// device, and with the ESPHome firmware those of the bridge it is connected
+// via, where the robot's sensors and switches live.
 function siblings(hass, entityId, domains) {
     const deviceId = hass?.entities?.[entityId]?.device_id;
     if (!deviceId) return [];
+    const viaId = hass.devices?.[deviceId]?.via_device_id;
+    const devices = viaId ? [deviceId, viaId] : [deviceId];
     return Object.values(hass.entities).filter(
-        (e) => e.device_id === deviceId && e.entity_id !== entityId && domains.includes(domainOf(e.entity_id)) && hass.states[e.entity_id],
+        (e) =>
+            devices.includes(e.device_id) &&
+            e.entity_id !== entityId &&
+            !(e.device_id === viaId && e.platform !== ESPHOME) &&
+            domains.includes(domainOf(e.entity_id)) &&
+            hass.states[e.entity_id],
     );
 }
 
@@ -2919,8 +2929,16 @@ function shortName(hass, entityId) {
 }
 
 // What an entity is called in the options: its translation key, which every
-// language shares, else the end of its entity id
-const keyOf = (hass, entityId) => hass.entities?.[entityId]?.translation_key || entityId.split(".")[1];
+// language shares, else the end of its entity id. ESPHome entities have
+// neither a translation key nor a predictable entity id, but the firmware's
+// names are fixed (docs/esphome-contract.md): "Stealth LED" is stealth_led.
+const snake = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+const keyOf = (hass, entityId) => {
+    const entry = hass.entities?.[entityId];
+    if (entry?.translation_key) return entry.translation_key;
+    if (entry?.platform === ESPHOME) return snake(shortName(hass, entityId));
+    return entityId.split(".")[1];
+};
 
 /* ── state content: every sensor of the robot ────────────────────────── */
 
@@ -2954,7 +2972,7 @@ function withReadouts(hass, entityId, memo, everything = false) {
         const attributes = { ...stateObj.attributes };
         for (const name of HIDDEN_ATTRIBUTES) delete attributes[name];
         for (const r of reads) {
-            if (r.key in attributes) continue;
+            if (r.key in attributes || HIDDEN_ATTRIBUTES.includes(r.key)) continue;
             const s = hass.states[r.entityId];
             // Nothing to say (an error message with no error): left out of the line
             if (!everything && ["", "unknown", "unavailable"].includes(s.state)) continue;
@@ -2993,7 +3011,8 @@ const fanSpeedsOf = (hass, entityId) =>
 // The robot's settings: its switches and choices. Left out: the schedule's days
 // and times (they belong to the schedule), and Eco mode and Intense clean, which
 // are the vacuum's suction under another name (the Suction feature sets them).
-const NOT_SETTINGS = ["eco_mode", "intense_clean"];
+// With the ESPHome firmware, manual driving and the sound picker are left out too.
+const NOT_SETTINGS = ["eco_mode", "intense_clean", "manual_mode", "manual_brush", "manual_vacuum", "manual_side_brush", "sound"];
 function configurables(hass, entityId) {
     return siblings(hass, entityId, ["switch", "select"])
         .map((e) => ({ key: keyOf(hass, e.entity_id), entityId: e.entity_id, label: shortName(hass, e.entity_id) }))
