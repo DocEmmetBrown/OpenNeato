@@ -19,9 +19,13 @@ import math
 import time
 from typing import Any
 
-from homeassistant.core import HomeAssistant, callback
+from collections.abc import Callable
+
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 from datetime import timedelta
 
 from .const import DOMAIN
@@ -41,6 +45,11 @@ from .lidar_mapper import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+PLANS_STORAGE_VERSION = 1
+# Session header mode of a mapping run (`Clean Explore`).
+MODE_EXPLORE = "explore"
+MAX_PLANS = 20
+MAPPING_RUN_WINDOW = 300.0
 POLL_INTERVAL = 4.0          # seconds between captures
 # A scan is only geometry if the laser was actually sweeping. Rather than pin a
 # nominal speed -- the robot reports 5.03 while docked and the field's unit is
@@ -92,6 +101,18 @@ class LidarMapRunner:
         self.api = api
         self.coordinator = coordinator
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry_id}_lidar_map")
+        # Saved floor plans: snapshots of the accumulated map, the one last
+        # saved/restored, and whether ordinary cleans keep updating the map.
+        self._plans_store = Store(hass, PLANS_STORAGE_VERSION, f"{DOMAIN}_{entry_id}_floor_plans")
+        self._plans: dict[str, dict[str, Any]] = {}
+        self._active_plan: str | None = None
+        self._learning = True
+        self._changed = 0
+        self._plan_listeners: list[Callable[[], None]] = []
+        # A mapping run asked for through Home Assistant: the next clean that
+        # starts within MAPPING_RUN_WINDOW is one, whatever its header says.
+        self._mapping_requested_at = 0.0
+        self._mapping_run = False
         self._map: AccumulatedMap | None = None
         self._captures: list[tuple[float, float, float, list[tuple[int, int]]]] = []
         self._collecting = False
@@ -122,6 +143,11 @@ class LidarMapRunner:
         """Restore the accumulated map from storage."""
         data = await self._store.async_load()
         self._map = AccumulatedMap(data)
+        plans = await self._plans_store.async_load() or {}
+        self._plans = dict(plans.get("plans") or {})
+        self._active_plan = plans.get("active") if plans.get("active") in self._plans else None
+        self._learning = bool(plans.get("learning", True))
+        self._changed = int(plans.get("changed", 0))
         if self._map.sessions:
             _LOGGER.info(
                 "LIDAR map restored: %d wall cells from %d cleanings",
@@ -152,6 +178,8 @@ class LidarMapRunner:
 
     def _start(self) -> None:
         self._collecting = True
+        self._mapping_run = time.monotonic() - self._mapping_requested_at < MAPPING_RUN_WINDOW
+        self._mapping_requested_at = 0.0
         self._captures = []
         self._interval = POLL_INTERVAL
         self._last_health = time.monotonic()
@@ -356,6 +384,11 @@ class LidarMapRunner:
         if self._session_name and fit and self._map is not None:
             self._map.record(self._session_name, fit, "fitted")
             await self._store.async_save(self._map.as_dict())
+        mapping_run = self._mapping_run or self._session_mode() == MODE_EXPLORE
+        self._mapping_run = False
+        if not self._learning and not mapping_run:
+            _LOGGER.info("LIDAR mapping: floor plan frozen, clean not merged")
+            return
         if len(captures) < MIN_CAPTURES:
             _LOGGER.info(
                 "LIDAR mapping: only %d captures, too thin to merge", len(captures)
@@ -385,6 +418,11 @@ class LidarMapRunner:
             "LIDAR map updated: %d wall cells after %d cleanings",
             report.get("total_walls", 0), report.get("sessions", 0),
         )
+        if mapping_run:
+            # A mapping run is done to keep its result: store it straight away.
+            await self.async_save_plan(f"Mapping run {dt_util.now().strftime('%Y-%m-%d %H:%M')}")
+        else:
+            self._touch()
 
     @staticmethod
     def _drop_slow_scans(captures: list) -> list:
@@ -461,3 +499,119 @@ class LidarMapRunner:
     @property
     def sessions(self) -> int:
         return self._map.sessions if self._map else 0
+
+    # ── saved floor plans ───────────────────────────────────────────
+
+    def _session_mode(self) -> str | None:
+        """Header mode of the session this run collected for."""
+        for item in (self.coordinator.data or {}).get("history") or ():
+            if isinstance(item, dict) and item.get("name") == self._session_name:
+                session = item.get("session")
+                return session.get("mode") if isinstance(session, dict) else None
+        return None
+
+    @callback
+    def async_mapping_run_requested(self) -> None:
+        """The next clean is a mapping run: merge it and save the result."""
+        self._mapping_requested_at = time.monotonic()
+
+    @property
+    def map_version(self) -> str:
+        """Changes whenever the drawn plan does (cache-busts the image)."""
+        return f"{self.sessions}.{self._changed}"
+
+    @property
+    def plan_names(self) -> list[str]:
+        """Saved floor plans, oldest first."""
+        return sorted(self._plans, key=lambda n: self._plans[n].get("created", ""))
+
+    @property
+    def active_plan(self) -> str | None:
+        """The plan last saved or restored, if the map has not been reset since."""
+        return self._active_plan
+
+    @property
+    def learning(self) -> bool:
+        """Whether ordinary cleans keep updating the plan (mapping runs always do)."""
+        return self._learning
+
+    @callback
+    def async_add_plan_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
+        """Call `listener` when the plans, the active plan or learning change."""
+        self._plan_listeners.append(listener)
+
+        @callback
+        def remove() -> None:
+            self._plan_listeners.remove(listener)
+
+        return remove
+
+    def _touch(self) -> None:
+        self._changed = int(time.time())
+        self._plans_store.async_delay_save(self._plans_data, 1)
+        for listener in list(self._plan_listeners):
+            listener()
+
+    @callback
+    def _plans_data(self) -> dict[str, Any]:
+        return {
+            "plans": self._plans,
+            "active": self._active_plan,
+            "learning": self._learning,
+            "changed": self._changed,
+        }
+
+    def _require_idle(self) -> None:
+        if self._collecting:
+            raise HomeAssistantError("Wait for the clean to finish before changing the floor plan.")
+
+    async def async_save_plan(self, name: str | None = None) -> str:
+        """Store the current map under `name` (default: date and time)."""
+        if self._map is None or not self._map.walls:
+            raise HomeAssistantError("There is no floor plan to save yet: run a clean or a mapping run first.")
+        name = (name or "").strip() or f"Floor plan {dt_util.now().strftime('%Y-%m-%d %H:%M')}"
+        if name not in self._plans and len(self._plans) >= MAX_PLANS:
+            raise HomeAssistantError(f"At most {MAX_PLANS} floor plans can be saved; delete one first.")
+        self._plans[name] = {
+            "created": dt_util.utcnow().isoformat(),
+            "sessions": self._map.sessions,
+            "map": self._map.as_dict(),
+        }
+        self._active_plan = name
+        self._touch()
+        _LOGGER.info("Floor plan saved as %r", name)
+        return name
+
+    async def async_restore_plan(self, name: str) -> None:
+        """Replace the current map with a saved one."""
+        self._require_idle()
+        plan = self._plans.get(name)
+        if plan is None:
+            raise HomeAssistantError(f"No saved floor plan called {name!r}")
+        self._map = AccumulatedMap(plan["map"])
+        await self._store.async_save(self._map.as_dict())
+        self._active_plan = name
+        self._touch()
+        _LOGGER.info("Floor plan %r restored", name)
+
+    async def async_delete_plan(self, name: str) -> None:
+        """Forget a saved plan (the current map is kept)."""
+        if self._plans.pop(name, None) is None:
+            raise HomeAssistantError(f"No saved floor plan called {name!r}")
+        if self._active_plan == name:
+            self._active_plan = None
+        self._touch()
+
+    async def async_reset_map(self) -> None:
+        """Start the floor plan from scratch (saved plans are kept)."""
+        self._require_idle()
+        self._map = AccumulatedMap()
+        await self._store.async_save(self._map.as_dict())
+        self._active_plan = None
+        self._touch()
+        _LOGGER.info("Floor plan reset")
+
+    async def async_set_learning(self, learning: bool) -> None:
+        """Let ordinary cleans update the plan, or freeze it."""
+        self._learning = learning
+        self._touch()

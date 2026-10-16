@@ -79,14 +79,39 @@ Cleans with fewer than 3 poses are discarded by the device and by the integratio
 recorded. Home Assistant must be running during a clean to record its path. If it was not, the session still appears with
 its summary (duration, area, distance, battery) once Home Assistant reconnects, but without a path.
 
-## 4. Dashboard
+## 4. Mapping run and floor plans
+
+The floor plan behind the replay is built from the robot's LIDAR during cleans. To map the home without
+cleaning it, start a **mapping run**: the robot's own exploration run (`Clean Explore`, as the Neato app's
+"map run"), which drives the whole floor with the brush and vacuum off. Start it from the *Start mapping run*
+button on the ESPHome device, the card's *Map* control (`items: [..., explore]`), or
+`vacuum.send_command` with `command: explore` (also works with the web-UI firmware).
+
+When the run ends its scans are merged into the floor plan and the result is saved as *Mapping run
+<date>*. On the robot device:
+
+- **Floor plan** (select): the saved plans; picking one restores it.
+- **Save floor plan** / **Reset floor plan** (buttons): save the current plan under the date and time, or
+  start again from scratch (saved plans are kept).
+- **Learn floor plan from cleans** (switch): on by default, every clean refines the plan. Turn it off to keep
+  the mapped plan exactly as it is; mapping runs still update it.
+
+Services for scripts: `openneato.start_mapping_run`, `openneato.save_floor_plan` (`name`),
+`openneato.restore_floor_plan`, `openneato.delete_floor_plan` and `openneato.reset_floor_plan`, all
+targeting the vacuum.
+
+The plan is a picture for Home Assistant: the robot does not use it to navigate, and lines drawn on it could
+not be sent to the robot (it has no serial command for no-go lines). To keep it out of an area, lay
+**magnetic boundary strip**, which the robot's sensors treat as a wall.
+
+## 5. Dashboard
 
 [`esphome/dashboard.yaml`](../esphome/dashboard.yaml) is a ready-made dashboard with every command and entity
 of the ESPHome firmware: the live map card and cleaning controls, the weekly schedule, robot settings and
 maintenance reminders, a manual-drive pad and diagnostics. Create a new dashboard, open its raw configuration
 editor and paste the file. It assumes the node is called `neato`; replace `neato_` otherwise.
 
-## 5. Scheduling
+## 6. Scheduling
 
 **The robot's weekly schedule as a calendar.** The OpenNeato entry adds a `Schedule` calendar
 (`calendar.neato_schedule`) showing the bridge's own schedule (2 cleans per weekday, run on the bridge even
@@ -107,7 +132,7 @@ mode. Options: an offset, a title keyword, only when nobody is home, and return 
 
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLeicas%2FOpenNeato%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fopenneato%2Fclean_on_calendar.yaml)
 
-## 6. Notifications
+## 7. Notifications
 
 Both firmwares have a **Robot event** entity firing `cleaning_started`, `cleaning_done`, `docking_recharge`,
 `returned_to_base`, `error` and `alert`. The bundled blueprint turns them into notifications through any

@@ -66,6 +66,12 @@ class SessionRecorder {
   // Feed each GetState result. `battery` = latest FuelPercent (-1 unknown),
   // `now_epoch` = UTC seconds (0 = clock not valid). Returns true when the
   // caller should continue the cycle with GetErr -> on_error().
+  // The next session starting within 5 min gets this header mode (e.g.
+  // "explore" for a mapping run, which reports like a house clean).
+  void expect_mode(const std::string &mode, uint32_t now_ms) {
+    this->pending_mode_ = mode;
+    this->pending_mode_ms_ = now_ms;
+  }
   bool on_state(const std::string &ui, const std::string &robot_state, int battery, int64_t now_epoch,
                 uint32_t now_ms);
   // Returns true when the caller should fetch a pose (GetRobotPos Smooth +
@@ -110,6 +116,8 @@ class SessionRecorder {
 
   uint32_t sid_{0};
   std::string mode_;
+  std::string pending_mode_;
+  uint32_t pending_mode_ms_{0};
   int64_t start_epoch_{0};
   uint32_t start_ms_{0};
   uint32_t end_duration_s_{0};

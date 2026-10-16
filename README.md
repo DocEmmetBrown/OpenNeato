@@ -121,12 +121,20 @@ integration adds the vacuum entity, the cleaning history / replay card and the L
 Assistant discovers the device; an existing entry for the same robot is migrated in place. See
 [docs/esphome.md](docs/esphome.md).
 
+### Mapping run and floor plans
+
+`vacuum.send_command` with `command: explore` (or the card's *Map* control) starts the robot's exploration
+run: it maps the whole floor without cleaning, and the resulting floor plan is saved. Floor plans can be saved,
+restored and frozen from the robot's *Floor plan* entities; see
+[docs/esphome.md](docs/esphome.md#4-mapping-run-and-floor-plans). For no-go lines, use magnetic boundary strip:
+the robot has no serial command for virtual ones.
+
 ### Cleaning calendar
 
 The [cleaning-calendar blueprint](blueprints/automation/openneato/clean_on_calendar.yaml) starts the robot when
 an event begins in any Home Assistant calendar (one-off dates, any repeat, optional navigation mode and spot
 clean from the event title). With the ESPHome firmware, the robot's own weekly schedule is also editable as a
-calendar; see [docs/esphome.md](docs/esphome.md#5-scheduling).
+calendar; see [docs/esphome.md](docs/esphome.md#6-scheduling).
 
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLeicas%2FOpenNeato%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fopenneato%2Fclean_on_calendar.yaml)
 

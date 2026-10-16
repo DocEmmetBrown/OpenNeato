@@ -651,8 +651,10 @@ std::string build_set_event(const char *event, const std::string &skey) {
 bool is_idle_state(const std::string &ui) { return ui == "UIMGR_STATE_IDLE" || ui == "UIMGR_STATE_STANDBY"; }
 
 bool is_cleaning_state(const std::string &ui) {
+  // EXPLOR*: in case an exploration run reports a state of its own rather than
+  // HOUSECLEANINGRUNNING (none is documented).
   return contains(ui, "HOUSECLEANINGRUNNING") || contains(ui, "HOUSECLEANINGPAUSED") ||
-         contains(ui, "SPOTCLEANINGRUNNING") || contains(ui, "SPOTCLEANINGPAUSED");
+         contains(ui, "SPOTCLEANINGRUNNING") || contains(ui, "SPOTCLEANINGPAUSED") || contains(ui, "EXPLOR");
 }
 
 bool is_paused_state(const std::string &ui) { return contains(ui, "CLEANINGPAUSED"); }

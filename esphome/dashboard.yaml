@@ -53,6 +53,7 @@ views:
         - dock
         - spot
         - locate
+        - explore
       - type: custom:openneato-suction
         fan_speeds:
         - eco
@@ -188,6 +189,77 @@ views:
   - type: grid
     cards:
     - type: heading
+      heading: Floor plan
+      icon: mdi:floor-plan
+    - type: tile
+      entity: button.neato_start_mapping_run
+      name: Mapping run
+      icon: mdi:map-search
+      hide_state: true
+      vertical: true
+      tap_action: &id007
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_start_mapping_run
+        confirmation:
+          text: Start a mapping run? The robot explores the whole floor without cleaning; the floor plan is saved when it
+            is done.
+      icon_tap_action: *id007
+      grid_options:
+        columns: 4
+        rows: 2
+      color: purple
+    - type: tile
+      entity: button.neato_save_floor_plan
+      name: Save
+      icon: mdi:content-save-outline
+      hide_state: true
+      vertical: true
+      tap_action: &id008
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_save_floor_plan
+      icon_tap_action: *id008
+      grid_options:
+        columns: 4
+        rows: 2
+    - type: tile
+      entity: button.neato_reset_floor_plan
+      name: Reset
+      icon: mdi:map-marker-off-outline
+      hide_state: true
+      vertical: true
+      tap_action: &id009
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.neato_reset_floor_plan
+        confirmation:
+          text: Start the floor plan again from scratch? Saved floor plans are kept.
+      icon_tap_action: *id009
+      grid_options:
+        columns: 4
+        rows: 2
+      color: red
+    - type: tile
+      entity: select.neato_floor_plan
+      name: Saved floor plans
+      features:
+      - type: select-options
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: switch.neato_learn_floor_plan_from_cleans
+      name: Learn from cleans
+      features:
+      - type: toggle
+      grid_options:
+        columns: 12
+  - type: grid
+    cards:
+    - type: heading
       heading: Status
       icon: mdi:information-outline
     - type: tile
@@ -230,12 +302,12 @@ views:
       icon: mdi:alert-remove
       hide_state: true
       vertical: true
-      tap_action: &id007
+      tap_action: &id010
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_clear_errors
-      icon_tap_action: *id007
+      icon_tap_action: *id010
       grid_options:
         columns: 4
         rows: 2
@@ -652,14 +724,14 @@ views:
       icon: mdi:battery-plus
       hide_state: true
       vertical: true
-      tap_action: &id008
+      tap_action: &id011
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_new_battery
         confirmation:
           text: 'Only after fitting a new battery: this resets the robot''s fuel gauge.'
-      icon_tap_action: *id008
+      icon_tap_action: *id011
       grid_options:
         columns: 4
         rows: 2
@@ -681,12 +753,12 @@ views:
       icon: mdi:volume-high
       hide_state: true
       vertical: true
-      tap_action: &id009
+      tap_action: &id012
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_play_sound
-      icon_tap_action: *id009
+      icon_tap_action: *id012
       grid_options:
         columns: 4
         rows: 2
@@ -696,12 +768,12 @@ views:
       icon: mdi:map-marker-question
       hide_state: true
       vertical: true
-      tap_action: &id010
+      tap_action: &id013
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_locate
-      icon_tap_action: *id010
+      icon_tap_action: *id013
       grid_options:
         columns: 4
         rows: 2
@@ -716,12 +788,12 @@ views:
       icon: mdi:alert-remove
       hide_state: true
       vertical: true
-      tap_action: &id011
+      tap_action: &id014
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_clear_errors
-      icon_tap_action: *id011
+      icon_tap_action: *id014
       grid_options:
         columns: 4
         rows: 2
@@ -731,12 +803,12 @@ views:
       icon: mdi:clock-check
       hide_state: true
       vertical: true
-      tap_action: &id012
+      tap_action: &id015
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_sync_robot_clock
-      icon_tap_action: *id012
+      icon_tap_action: *id015
       grid_options:
         columns: 4
         rows: 2
@@ -746,14 +818,14 @@ views:
       icon: mdi:restart
       hide_state: true
       vertical: true
-      tap_action: &id013
+      tap_action: &id016
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_restart_robot
         confirmation:
           text: Restart the robot?
-      icon_tap_action: *id013
+      icon_tap_action: *id016
       grid_options:
         columns: 4
         rows: 2
@@ -764,14 +836,14 @@ views:
       icon: mdi:power
       hide_state: true
       vertical: true
-      tap_action: &id014
+      tap_action: &id017
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_shut_down_robot
         confirmation:
           text: Shut the robot down? It must be woken up by hand.
-      icon_tap_action: *id014
+      icon_tap_action: *id017
       grid_options:
         columns: 4
         rows: 2
@@ -802,14 +874,14 @@ views:
       icon: mdi:restart
       hide_state: true
       vertical: true
-      tap_action: &id015
+      tap_action: &id018
         action: perform-action
         perform_action: button.press
         target:
           entity_id: button.neato_restart_bridge
         confirmation:
           text: Restart the ESP32 bridge?
-      icon_tap_action: *id015
+      icon_tap_action: *id018
       grid_options:
         columns: 4
         rows: 2
@@ -877,14 +949,14 @@ views:
           name: Left
           icon: mdi:rotate-left
           show_state: false
-          tap_action: &id016
+          tap_action: &id019
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: -100
               right_mm: 100
               speed: 150
-          hold_action: *id016
+          hold_action: *id019
           grid_options:
             columns: 4
             rows: 2
@@ -892,14 +964,14 @@ views:
           name: Forward
           icon: mdi:arrow-up-bold
           show_state: false
-          tap_action: &id017
+          tap_action: &id020
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: 300
               right_mm: 300
               speed: 150
-          hold_action: *id017
+          hold_action: *id020
           grid_options:
             columns: 4
             rows: 2
@@ -907,14 +979,14 @@ views:
           name: Right
           icon: mdi:rotate-right
           show_state: false
-          tap_action: &id018
+          tap_action: &id021
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: 100
               right_mm: -100
               speed: 150
-          hold_action: *id018
+          hold_action: *id021
           grid_options:
             columns: 4
             rows: 2
@@ -922,14 +994,14 @@ views:
           name: Back left
           icon: mdi:arrow-bottom-left-bold-outline
           show_state: false
-          tap_action: &id019
+          tap_action: &id022
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: -200
               right_mm: -100
               speed: 150
-          hold_action: *id019
+          hold_action: *id022
           grid_options:
             columns: 4
             rows: 2
@@ -937,14 +1009,14 @@ views:
           name: Stop
           icon: mdi:stop-circle
           show_state: false
-          tap_action: &id020
+          tap_action: &id023
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: 0
               right_mm: 0
               speed: 0
-          hold_action: *id020
+          hold_action: *id023
           grid_options:
             columns: 4
             rows: 2
@@ -952,14 +1024,14 @@ views:
           name: Back right
           icon: mdi:arrow-bottom-right-bold-outline
           show_state: false
-          tap_action: &id021
+          tap_action: &id024
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: -100
               right_mm: -200
               speed: 150
-          hold_action: *id021
+          hold_action: *id024
           grid_options:
             columns: 4
             rows: 2
@@ -967,14 +1039,14 @@ views:
           name: Spin left
           icon: mdi:restore
           show_state: false
-          tap_action: &id022
+          tap_action: &id025
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: -200
               right_mm: 200
               speed: 150
-          hold_action: *id022
+          hold_action: *id025
           grid_options:
             columns: 4
             rows: 2
@@ -982,14 +1054,14 @@ views:
           name: Back
           icon: mdi:arrow-down-bold
           show_state: false
-          tap_action: &id023
+          tap_action: &id026
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: -200
               right_mm: -200
               speed: 150
-          hold_action: *id023
+          hold_action: *id026
           grid_options:
             columns: 4
             rows: 2
@@ -997,14 +1069,14 @@ views:
           name: Spin right
           icon: mdi:reload
           show_state: false
-          tap_action: &id024
+          tap_action: &id027
             action: perform-action
             perform_action: esphome.neato_manual_move
             data:
               left_mm: 200
               right_mm: -200
               speed: 150
-          hold_action: *id024
+          hold_action: *id027
           grid_options:
             columns: 4
             rows: 2

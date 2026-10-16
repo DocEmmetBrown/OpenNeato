@@ -300,6 +300,7 @@ BUTTONS = [
     ("shut_down_robot", "BUTTON_SHUT_DOWN_ROBOT", "Shut down robot", "mdi:power", CONFIG, None),
     ("new_battery", "BUTTON_NEW_BATTERY", "New battery", "mdi:battery-plus", CONFIG, None),
     ("sync_robot_clock", "BUTTON_SYNC_ROBOT_CLOCK", "Sync robot clock", "mdi:clock-check", CONFIG, None),
+    ("start_mapping_run", "BUTTON_START_MAPPING_RUN", "Start mapping run", "mdi:map-search", None, None),
 ]
 
 

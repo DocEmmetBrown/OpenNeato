@@ -2999,6 +2999,8 @@ const CONTROLS = [
     { key: "dock", label: "Dock", icon: "mdi:home-import-outline", service: "vacuum.return_to_base", feature: 16 },
     { key: "spot", label: "Spot clean", icon: "mdi:target", service: "vacuum.clean_spot", feature: 1024 },
     { key: "locate", label: "Locate", icon: "mdi:map-marker", service: "vacuum.locate", feature: 512 },
+    // A mapping run (Clean Explore): drives the whole floor without cleaning to map it
+    { key: "explore", label: "Map", icon: "mdi:map-search", service: "vacuum.send_command", data: { command: "explore" }, feature: 256 },
 ];
 const FAN_SPEED_FEATURE = 32;
 const FAN_ICONS = { eco: "mdi:leaf", normal: "mdi:fan", intense: "mdi:fan-plus" };
@@ -3154,7 +3156,7 @@ class OpenNeatoControls extends OpenNeatoFeature {
         return items
             .map((key) => available.find((c) => c.key === key))
             .filter(Boolean)
-            .map((c) => ({ key: c.key, label: c.label, icon: c.icon, action: () => performAction(this, c.service, id) }));
+            .map((c) => ({ key: c.key, label: c.label, icon: c.icon, action: () => performAction(this, c.service, id, c.data) }));
     }
 }
 

@@ -191,3 +191,20 @@ TEST(batch_limits_to_100) {
   r.entries_json(200, more);
   CHECK(!more);
 }
+
+TEST(session_takes_expected_mode) {
+  SessionRecorder r(256);
+  cycle(r, IDLE, "", T0 - 10, 0, 0, 0);
+  r.expect_mode("explore", 0);
+  cycle(r, RUNNING, "", T0, 2000, 0.0f, 0.0f, 0.0f);
+  CHECK(r.collecting());
+  CHECK(r.current_json().find("\"mode\":\"explore\"") != std::string::npos);
+}
+
+TEST(session_expected_mode_expires) {
+  SessionRecorder r(256);
+  cycle(r, IDLE, "", T0 - 10, 0, 0, 0);
+  r.expect_mode("explore", 0);
+  cycle(r, RUNNING, "", T0, 400000, 0.0f, 0.0f, 0.0f);
+  CHECK(r.current_json().find("\"mode\":\"house\"") != std::string::npos);
+}

@@ -15,6 +15,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .api import OpenNeatoApiClient
 from .const import DOMAIN
 from .entity import OpenNeatoEntity
+from .floor_plan import FloorPlanSelect, floor_plan_entities
+from .esphome_backend import OpenNeatoEsphomeClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,6 +101,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up OpenNeato select entities from a config entry."""
     data = hass.data[DOMAIN][entry.entry_id]
+    floor_plan = floor_plan_entities(data, (FloorPlanSelect,))
+    if isinstance(data["api"], OpenNeatoEsphomeClient):
+        # The robot's own entities are native ESPHome ones.
+        async_add_entities(floor_plan)
+        return
     serial = data["serial"]
     model = data["model"]
     sw_version = data["sw_version"]
@@ -122,4 +129,4 @@ async def async_setup_entry(
             )
         )
 
-    async_add_entities(entities)
+    async_add_entities([*entities, *floor_plan])

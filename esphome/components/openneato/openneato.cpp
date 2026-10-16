@@ -849,6 +849,11 @@ void OpenNeatoComponent::on_button(uint8_t index) {
         ESP_LOGW(TAG, "Start spot clean: %s", this->last_error_.c_str());
       }
       break;
+    case BUTTON_START_MAPPING_RUN:
+      if (!this->api_clean("explore")) {
+        ESP_LOGW(TAG, "Start mapping run: %s", this->last_error_.c_str());
+      }
+      break;
     case BUTTON_PAUSE:
       if (!this->api_clean("pause")) {
         ESP_LOGW(TAG, "Pause: %s", this->last_error_.c_str());
@@ -917,8 +922,9 @@ void OpenNeatoComponent::manual_mode_(bool on) {
 // -- API actions -----------------------------------------------------------------
 
 bool OpenNeatoComponent::api_clean(const std::string &action) {
-  if (action != "house" && action != "spot" && action != "pause" && action != "stop" && action != "dock") {
-    this->set_error_("action must be one of house, spot, pause, stop, dock");
+  if (action != "house" && action != "spot" && action != "pause" && action != "stop" && action != "dock" &&
+      action != "explore") {
+    this->set_error_("action must be one of house, spot, pause, stop, dock, explore");
     return false;
   }
   if (!this->client_.has_skey()) {
@@ -937,6 +943,8 @@ bool OpenNeatoComponent::api_clean(const std::string &action) {
     this->set_error_("serial queue full");
     return false;
   }
+  if (action == "explore")
+    this->history_->expect_mode("explore", millis());
   this->poll_soon_();
   this->last_error_.clear();
   return true;

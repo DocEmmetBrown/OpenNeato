@@ -147,6 +147,9 @@ void SessionRecorder::start_(const std::string &ui, int battery, int64_t now_epo
   this->recharging_ = false;
   this->paused_ = false;
   this->mode_ = clean_mode_from_state(ui);
+  if (!this->pending_mode_.empty() && now_ms - this->pending_mode_ms_ < 300000)
+    this->mode_ = this->pending_mode_;
+  this->pending_mode_.clear();
   this->start_epoch_ = now_epoch > 0 ? now_epoch : 0;
   this->sid_ = static_cast<uint32_t>(this->start_epoch_);
   this->start_ms_ = now_ms;

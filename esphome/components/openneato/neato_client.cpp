@@ -163,6 +163,13 @@ bool NeatoClient::clean(const std::string &action, DoneCallback cb) {
     this->invalidate_state();
     return this->enqueue_action_(build_set_event(evt, this->skey_), std::move(cb), PRIORITY_HIGH);
   }
+  if (action == "explore") {
+    // No SetEvent exists for it; the plain Clean command starts a fresh run.
+    this->invalidate_state();
+    if (this->clean_start_cb_)
+      this->clean_start_cb_();
+    return this->enqueue_action_(NEATO_CMD_CLEAN_EXPLORE, std::move(cb), PRIORITY_HIGH);
+  }
   if (action == "house" || action == "spot") {
     bool house = action == "house";
     // Type-aware resume: "house" only resumes a paused house clean, etc.

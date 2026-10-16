@@ -39,6 +39,7 @@ from .esphome_backend import (
 )
 from .esphome_history import EsphomeSessionRecorder
 from .firmware_check import FIRMWARE_UNSUPPORTED, classify_firmware
+from .floor_plan import FLOOR_PLAN_KEYS
 from .http import OpenNeatoMapView
 from .lidar_runner import LidarMapRunner
 
@@ -71,8 +72,18 @@ PLATFORMS: list[Platform] = [
 # On the ESPHome firmware every sensor, switch, number, select, button and the
 # robot event are native ESPHome entities; the integration only adds what
 # ESPHome cannot express: the vacuum entity, the schedule as a calendar, the
-# replay card's history and the LIDAR floor plan.
-ESPHOME_PLATFORMS: list[Platform] = [Platform.VACUUM, Platform.CALENDAR]
+# replay card's history and the LIDAR floor plan (with its select, buttons and
+# switch; those platforms add nothing else on this backend).
+ESPHOME_PLATFORMS: list[Platform] = [
+    Platform.VACUUM,
+    Platform.CALENDAR,
+    Platform.SELECT,
+    Platform.BUTTON,
+    Platform.SWITCH,
+]
+# Unique-id suffixes ("<serial>_<suffix>") of the entities this integration
+# creates on the ESPHome backend.
+ESPHOME_ENTITY_KEYS = ("vacuum", "schedule_calendar", *FLOOR_PLAN_KEYS)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -224,13 +235,6 @@ async def _async_setup_esphome_entry(hass: HomeAssistant, entry: ConfigEntry) ->
     if not client.available():
         raise ConfigEntryNotReady("The OpenNeato ESPHome device is not connected")
 
-    # An entry migrated from the HTTP firmware still owns the entities of the
-    # platforms that ESPHome now provides natively; drop them.
-    registry = er.async_get(hass)
-    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if entity.domain not in ESPHOME_PLATFORMS:
-            registry.async_remove(entity.entity_id)
-
     recorder = EsphomeSessionRecorder(hass, entry.entry_id, client)
     await recorder.async_load()
     client.recorder = recorder
@@ -248,6 +252,14 @@ async def _async_setup_esphome_entry(hass: HomeAssistant, entry: ConfigEntry) ->
         raise ConfigEntryNotReady("The robot has not reported its serial number yet")
     if entry.data.get("serial") != serial:
         hass.config_entries.async_update_entry(entry, data={**entry.data, "serial": serial})
+
+    # An entry migrated from the HTTP firmware still owns the entities that
+    # ESPHome now provides natively; drop them.
+    keep = {f"{serial}_{key}" for key in ESPHOME_ENTITY_KEYS}
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.unique_id not in keep:
+            registry.async_remove(entity.entity_id)
 
     await _async_finish_setup(
         hass,

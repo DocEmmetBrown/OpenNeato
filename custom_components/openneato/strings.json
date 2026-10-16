@@ -281,6 +281,9 @@
       },
       "skip_next_clean": {
         "name": "Skip next clean"
+      },
+      "floor_plan_learning": {
+        "name": "Learn floor plan from cleans"
       }
     },
     "button": {
@@ -304,6 +307,12 @@
       },
       "new_battery": {
         "name": "New battery"
+      },
+      "save_floor_plan": {
+        "name": "Save floor plan"
+      },
+      "reset_floor_plan": {
+        "name": "Reset floor plan"
       }
     },
     "number": {
@@ -331,6 +340,9 @@
     "select": {
       "navigation_mode": {
         "name": "Navigation mode"
+      },
+      "floor_plan": {
+        "name": "Floor plan"
       }
     },
     "text": {
@@ -444,6 +456,46 @@
     "unsupported_firmware": {
       "title": "Unsupported OpenNeato firmware",
       "description": "The bridge at {host} reports firmware {version} from {repository}. This integration is built for the Leicas/OpenNeato fork firmware ({min_version} or newer); upstream or older firmware may miss endpoints, and heavy polling can make the ESP32 unresponsive. Flash the fork firmware from {releases_url}."
+    }
+  },
+  "services": {
+    "start_mapping_run": {
+      "name": "Start mapping run",
+      "description": "Explore the whole floor without cleaning (the robot's exploration run) to build the floor plan. The result is merged and saved as a floor plan."
+    },
+    "save_floor_plan": {
+      "name": "Save floor plan",
+      "description": "Save the current floor plan under a name (default: the date and time).",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name of the saved floor plan. Saving under an existing name replaces it."
+        }
+      }
+    },
+    "restore_floor_plan": {
+      "name": "Restore floor plan",
+      "description": "Replace the current floor plan with a saved one.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name of the saved floor plan."
+        }
+      }
+    },
+    "delete_floor_plan": {
+      "name": "Delete floor plan",
+      "description": "Forget a saved floor plan. The current floor plan is kept.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name of the saved floor plan."
+        }
+      }
+    },
+    "reset_floor_plan": {
+      "name": "Reset floor plan",
+      "description": "Start the floor plan again from scratch. Saved floor plans are kept."
     }
   }
 }

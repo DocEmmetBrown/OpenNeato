@@ -261,3 +261,25 @@ TEST(client_manual_state_patch_and_power_control) {
   CHECK(!client.set_user_setting("Eco Mode", "ON"));
   CHECK(client.set_user_setting("EcoMode", "ON"));
 }
+
+TEST(client_explore_sends_clean_explore) {
+  FakeRobot robot;
+  robot.replies["GetVersion"] = VERSION_REPLY;
+  NeatoClient client(&robot, fake_clock);
+  run(client, 1000);
+  CHECK(client.has_skey());
+  int started = 0;
+  client.on_clean_start([&]() { started++; });
+  client.set_nav_mode_getter([]() { return std::string("Deep"); });
+  robot.written.clear();
+  bool done = false;
+  CHECK(client.clean("explore", [&](bool ok) { done = ok; }));
+  run(client, 300);
+  CHECK(done);
+  CHECK_EQ(started, 1);
+  // No navigation mode and no SetEvent: just the exploration run.
+  CHECK_EQ(robot.written.size(), static_cast<size_t>(1));
+  if (robot.written.size() == 1)
+    CHECK_STR(robot.written[0], "Clean Explore");
+  CHECK(!client.clean("bogus"));
+}

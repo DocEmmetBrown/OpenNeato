@@ -141,6 +141,7 @@ Timestamp sensors are ESPHome float32 values, so `next_clean` / `clean_started` 
 | Shut down robot | `shut_down_robot` |
 | New battery | `new_battery` |
 | Sync robot clock | `sync_robot_clock` |
+| Start mapping run | `start_mapping_run` (`Clean Explore`) |
 
 ### event
 
@@ -175,7 +176,7 @@ Failures respond `success: false` with an `error_message`. Actions that need a s
 
 | Action | Variables | Response `data` |
 |---|---|---|
-| `clean` | `action: string` — `house` (start, or resume when paused), `spot`, `pause`, `stop`, `dock` | `{}` |
+| `clean` | `action: string` — `house` (start, or resume when paused), `spot`, `pause`, `stop`, `dock`, `explore` (mapping run: `Clean Explore`, the Smart App exploration run, no cleaning) | `{}` |
 | `play_sound` | `sound_id: int` (0–20) | `{}` |
 | `set_user_setting` | `key: string`, `value: string` — `SetUserSettings` key/value (`EcoMode`, `ON`) | `{}` |
 | `send_command` | `command: string` — raw serial command | `{"response": "<raw text including the command echo, without 0x1A>"}` |
@@ -221,7 +222,8 @@ Request returns at most 100 entries with `seq > since_seq`, oldest first:
 - `previous`: the last completed session (header + summary), or `null`.
 - `sid`: id of the session the entry belongs to (= header `time`, epoch seconds; if the clock was
   not valid at session start the device uses `0` and the integration substitutes its own time).
-- Only house and spot cleans are recorded (not manual driving). A session that ends with fewer than
+- Only house and spot cleans and mapping runs are recorded (not manual driving). A session that
+  starts within 5 min of an `explore` request has header `mode: "explore"`. A session that ends with fewer than
   3 poses is discarded: `current` becomes `null` without it becoming `previous`, so the integration
   drops its `sid` (its entries may stay in the buffer).
 - Pose `b`: main brush RPM read (`GetMotors`) right after the pose, omitted when that read failed.

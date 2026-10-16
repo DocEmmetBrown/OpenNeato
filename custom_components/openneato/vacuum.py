@@ -12,11 +12,25 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+import voluptuous as vol
 
 from .api import OpenNeatoApiClient
 from .const import DOMAIN, FAN_SPEEDS, UISTATE_SUBSTRINGS
 from .entity import OpenNeatoEntity
+from .esphome_backend import OpenNeatoEsphomeClient
+
+# vacuum.send_command commands that start a mapping run (`Clean Explore`)
+MAPPING_RUN_COMMANDS = ("explore", "mapping_run", "map")
+SERVICE_START_MAPPING_RUN = "start_mapping_run"
+SERVICE_SAVE_FLOOR_PLAN = "save_floor_plan"
+SERVICE_RESTORE_FLOOR_PLAN = "restore_floor_plan"
+SERVICE_DELETE_FLOOR_PLAN = "delete_floor_plan"
+SERVICE_RESET_FLOOR_PLAN = "reset_floor_plan"
+ATTR_NAME = "name"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +68,19 @@ async def async_setup_entry(
             )
         ]
     )
+
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(SERVICE_START_MAPPING_RUN, None, "async_start_mapping_run")
+    platform.async_register_entity_service(
+        SERVICE_SAVE_FLOOR_PLAN, {vol.Optional(ATTR_NAME): cv.string}, "async_save_floor_plan"
+    )
+    platform.async_register_entity_service(
+        SERVICE_RESTORE_FLOOR_PLAN, {vol.Required(ATTR_NAME): cv.string}, "async_restore_floor_plan"
+    )
+    platform.async_register_entity_service(
+        SERVICE_DELETE_FLOOR_PLAN, {vol.Required(ATTR_NAME): cv.string}, "async_delete_floor_plan"
+    )
+    platform.async_register_entity_service(SERVICE_RESET_FLOOR_PLAN, None, "async_reset_floor_plan")
 
 
 class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
@@ -193,6 +220,46 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
     async def async_send_command(
         self, command: str, params: dict[str, Any] | list[Any] | None = None, **kwargs: Any
     ) -> None:
-        """Send a raw serial command to the robot."""
+        """Send a raw serial command to the robot ("explore" starts a mapping run)."""
+        if command.strip().lower() in MAPPING_RUN_COMMANDS:
+            await self.async_start_mapping_run()
+            return
         await self._api.send_serial_command(command)
         await self.coordinator.async_request_refresh()
+
+    # -- Mapping run and floor plans ----------------------------------------
+
+    def _mapper(self):
+        mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
+        if mapper is None:
+            raise HomeAssistantError("The LIDAR floor plan is turned off in the integration's options")
+        return mapper
+
+    async def async_start_mapping_run(self) -> None:
+        """Explore the whole floor without cleaning (Clean Explore) to map it."""
+        if self.activity not in (VacuumActivity.DOCKED, VacuumActivity.IDLE):
+            raise HomeAssistantError("Stop the robot before starting a mapping run")
+        mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
+        if mapper is not None:
+            mapper.async_mapping_run_requested()
+        if isinstance(self._api, OpenNeatoEsphomeClient):
+            await self._api.clean("explore")
+        else:
+            await self._api.send_serial_command("Clean Explore")
+        await self.coordinator.async_request_refresh()
+
+    async def async_save_floor_plan(self, name: str | None = None) -> None:
+        """Save the current floor plan."""
+        await self._mapper().async_save_plan(name)
+
+    async def async_restore_floor_plan(self, name: str) -> None:
+        """Replace the floor plan with a saved one."""
+        await self._mapper().async_restore_plan(name)
+
+    async def async_delete_floor_plan(self, name: str) -> None:
+        """Forget a saved floor plan."""
+        await self._mapper().async_delete_plan(name)
+
+    async def async_reset_floor_plan(self) -> None:
+        """Start the floor plan again from scratch."""
+        await self._mapper().async_reset_map()

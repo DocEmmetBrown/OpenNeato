@@ -62,6 +62,17 @@ async def calendar(
     dev.set("schedule_wednesday_1", "on")
     dev.set("schedule_wednesday_1_time", "09:00:00")
 
+    dev.handlers["get_pose_batch"] = lambda data: {
+        "boot": 1, "seq": 0, "first_seq": 1, "more": False, "current": None, "previous": None, "entries": []
+    }
+
+    hass.config.config_dir = str(tmp_path)
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=MAC, data={CONF_BACKEND: BACKEND_ESPHOME, CONF_DEVICE_ID: dev.device.id}
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
     def ids(call: ServiceCall) -> list[str]:
         value = call.data["entity_id"]
         return [value] if isinstance(value, str) else list(value)
@@ -74,20 +85,10 @@ async def calendar(
         for entity_id in ids(call):
             hass.states.async_set(entity_id, str(call.data["time"]))
 
+    # Registered after setup: the switch platform this entry loads registers the real ones.
     hass.services.async_register("switch", "turn_on", switch)
     hass.services.async_register("switch", "turn_off", switch)
     hass.services.async_register("time", "set_value", set_time)
-    dev.handlers["get_pose_batch"] = lambda data: {
-        "boot": 1, "seq": 0, "first_seq": 1, "more": False, "current": None, "previous": None, "entries": []
-    }
-
-    hass.config.config_dir = str(tmp_path)
-    entry = MockConfigEntry(
-        domain=DOMAIN, unique_id=MAC, data={CONF_BACKEND: BACKEND_ESPHOME, CONF_DEVICE_ID: dev.device.id}
-    )
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
     entity = hass.data["entity_components"]["calendar"].get_entity(CALENDAR)
     assert entity is not None
     yield entity

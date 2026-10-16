@@ -145,7 +145,7 @@ def _floorplan_payload(hass: HomeAssistant, entry_id: str) -> dict[str, Any] | N
             )
             return {
                 # The session count busts the browser cache as the map improves.
-                "url": f"/api/openneato/map/{entry_id}?v={mapper.sessions}",
+                "url": f"/api/openneato/map/{entry_id}?v={mapper.map_version}",
                 "originX": cal["origin_x"],
                 "originY": cal["origin_y"],
                 "rotation": 0.0,

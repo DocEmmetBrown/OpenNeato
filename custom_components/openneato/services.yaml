@@ -1,0 +1,46 @@
+start_mapping_run:
+  target:
+    entity:
+      integration: openneato
+      domain: vacuum
+
+save_floor_plan:
+  target:
+    entity:
+      integration: openneato
+      domain: vacuum
+  fields:
+    name:
+      example: Ground floor
+      selector:
+        text:
+
+restore_floor_plan:
+  target:
+    entity:
+      integration: openneato
+      domain: vacuum
+  fields:
+    name:
+      required: true
+      example: Ground floor
+      selector:
+        text:
+
+delete_floor_plan:
+  target:
+    entity:
+      integration: openneato
+      domain: vacuum
+  fields:
+    name:
+      required: true
+      example: Ground floor
+      selector:
+        text:
+
+reset_floor_plan:
+  target:
+    entity:
+      integration: openneato
+      domain: vacuum

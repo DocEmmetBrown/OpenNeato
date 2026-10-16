@@ -45,7 +45,9 @@ async def test_esphome_entry(hass: HomeAssistant, esphome_device: FakeEsphomeDev
     assert entry.data["serial"] == "OPS12345-ABC"
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert sorted(e.domain for e in entities) == ["calendar", "vacuum"]
+    assert sorted(e.unique_id.split("_", 1)[1] for e in entities) == [
+        "floor_plan", "floor_plan_learning", "reset_floor_plan", "save_floor_plan", "schedule_calendar", "vacuum",
+    ]
     vacuum = next(e for e in entities if e.domain == "vacuum")
     assert vacuum.unique_id == "OPS12345-ABC_vacuum"
     robot = dr.async_get(hass).async_get(vacuum.device_id)
@@ -80,16 +82,18 @@ async def test_migrated_entry_drops_http_entities(
     registry = er.async_get(hass)
     registry.async_get_or_create("vacuum", DOMAIN, "OPS12345-ABC_vacuum", config_entry=entry)
     registry.async_get_or_create("sensor", DOMAIN, "OPS12345-ABC_battery", config_entry=entry)
+    # Its suffix looks like ours but it is an HTTP-era switch: removed too.
+    registry.async_get_or_create("switch", DOMAIN, "OPS12345-ABC_manual_vacuum", config_entry=entry)
     hass.config.config_dir = str(tmp_path)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
     entities = er.async_entries_for_config_entry(registry, entry.entry_id)
-    assert sorted((e.domain, e.unique_id) for e in entities) == [
-        ("calendar", "OPS12345-ABC_schedule_calendar"),
-        ("vacuum", "OPS12345-ABC_vacuum"),
-    ]
+    # The HTTP-era battery sensor is gone; the vacuum (same unique id) is kept.
+    assert ("sensor", "OPS12345-ABC_battery") not in {(e.domain, e.unique_id) for e in entities}
+    assert ("vacuum", "OPS12345-ABC_vacuum") in {(e.domain, e.unique_id) for e in entities}
+    assert ("switch", "OPS12345-ABC_manual_vacuum") not in {(e.domain, e.unique_id) for e in entities}
 
 
 async def test_esphome_entry_not_ready_when_disconnected(

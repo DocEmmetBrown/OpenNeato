@@ -49,6 +49,7 @@ LOOKAHEAD = dt.timedelta(days=8)
 # The ESPHome device confirms writes asynchronously; wait this long for the
 # new state so the calendar redraws with it.
 WRITE_TIMEOUT = 3.0
+WRITE_POLL = 0.1
 
 
 @dataclass(frozen=True)
@@ -371,10 +372,8 @@ class OpenNeatoScheduleCalendar(OpenNeatoEntity, CalendarEntity):
                 await self.hass.services.async_call("switch", service, {"entity_id": entity_id}, blocking=True)
             expected[entity_id] = value
 
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + WRITE_TIMEOUT
-        while loop.time() < deadline:
+        for _ in range(int(WRITE_TIMEOUT / WRITE_POLL)):
             if all((s := self.hass.states.get(e)) is not None and s.state == v for e, v in expected.items()):
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(WRITE_POLL)
         self.async_write_ha_state()
