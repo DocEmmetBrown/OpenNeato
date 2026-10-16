@@ -990,6 +990,14 @@ bool OpenNeatoComponent::api_clean(const std::string &action) {
     this->set_error_("manual mode is active");
     return false;
   }
+  // The robot only drives home during a clean it started from the base (it
+  // then knows where the base is); idle it ignores the event silently.
+  if (action == "dock" && neatocore::is_idle_state(this->ui_state_)) {
+    this->set_error_(this->ext_power_ ? "the robot is already on the base"
+                                      : "the robot only returns to base during a clean started from the base; "
+                                        "put it back by hand");
+    return false;
+  }
   // New cleans are guarded against the persistent-map refusal; "explore"
   // (mapping run) is a house clean: Clean Explore leaves robots without
   // the Neato cloud stuck until restarted.

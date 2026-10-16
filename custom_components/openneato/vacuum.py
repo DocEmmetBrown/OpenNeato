@@ -216,6 +216,14 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         """Return to dock."""
+        # The robot only drives home during a clean it started from the base
+        # (it then knows where the base is); idle it ignores the command.
+        if self.activity is VacuumActivity.DOCKED:
+            raise HomeAssistantError("The robot is already on its base")
+        if self.activity is VacuumActivity.IDLE:
+            raise HomeAssistantError(
+                "The robot only returns to its base during a clean started from the base; put it back by hand"
+            )
         await self._api.clean("dock")
         await self.coordinator.async_request_refresh()
 

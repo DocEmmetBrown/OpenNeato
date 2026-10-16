@@ -96,6 +96,10 @@ Neato cloud, and without it the robot refuses it, then every clean after it, unt
 (the app sent its own power level with each start) and ignore it mid-clean, so cleans started from the bridge
 run at normal power. Check with a clean: if the switch flips back to off when it starts, that is the case.
 
+**Return to base.** The robot only drives home during a clean it started from the base (it then knows where the
+base is). Idle off the base it ignores the command, so the bridge refuses it with an error instead: put the robot
+back by hand.
+
 **Stuck starting a clean.** Without the cloud a robot can also get stuck starting an ordinary clean: it beeps,
 shows *Acquiring map data* (236) then *Failed to load persistent map* (234), and stays in
 `UIMGR_STATE_STARTHOUSECLEANING` / `ST_C_Standby`. See upstream's

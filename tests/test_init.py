@@ -143,3 +143,39 @@ async def test_http_entry_has_event_entity(hass: HomeAssistant) -> None:
     assert {"vacuum", "sensor", "event"} <= domains
     event = next(e for e in entities if e.domain == "event")
     assert event.unique_id == "SER1_robot_event"
+
+
+async def test_return_to_base_needs_a_clean(hass: HomeAssistant, esphome_device: FakeEsphomeDevice, tmp_path) -> None:
+    """Idle or docked, Return to base explains why it cannot work instead of doing nothing."""
+    from homeassistant.exceptions import HomeAssistantError
+
+    hass.config.config_dir = str(tmp_path)
+    esphome_device.handlers["get_pose_batch"] = lambda data: {
+        "boot": 1, "seq": 0, "first_seq": 1, "more": False, "current": None, "previous": None, "entries": []
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=MAC, data={CONF_BACKEND: BACKEND_ESPHOME, CONF_DEVICE_ID: esphome_device.device.id}
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    vacuum = next(
+        e.entity_id for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id) if e.domain == "vacuum"
+    )
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    with pytest.raises(HomeAssistantError, match="already on its base"):  # docked
+        await hass.services.async_call("vacuum", "return_to_base", {"entity_id": vacuum}, blocking=True)
+
+    esphome_device.set("charging", "off")
+    esphome_device.set("external_power", "off")
+    await coordinator.async_refresh()
+    with pytest.raises(HomeAssistantError, match="started from the base"):  # idle off the base
+        await hass.services.async_call("vacuum", "return_to_base", {"entity_id": vacuum}, blocking=True)
+    assert ("clean", {"action": "dock"}) not in esphome_device.calls
+
+    esphome_device.set("ui_state", "UIMGR_STATE_HOUSECLEANINGRUNNING")
+    await coordinator.async_refresh()
+    await hass.services.async_call("vacuum", "return_to_base", {"entity_id": vacuum}, blocking=True)
+    assert ("clean", {"action": "dock"}) in esphome_device.calls
+    assert await hass.config_entries.async_unload(entry.entry_id)
