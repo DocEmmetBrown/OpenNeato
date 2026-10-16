@@ -253,6 +253,6 @@ async def test_http_explore_falls_back_to_quiet_clean(hass: HomeAssistant) -> No
         await vac._async_explore_fallback()
 
     api.clear_errors.assert_awaited_once()
-    api.clean.assert_awaited_once_with("house")
+    assert [c.args for c in api.clean.await_args_list] == [("stop",), ("house",)]
     mapper.async_mapping_run_requested.assert_called_once()
     assert [c.args for c in api.set_user_setting.await_args_list] == [("EcoMode", "ON"), ("EcoMode", "OFF")]

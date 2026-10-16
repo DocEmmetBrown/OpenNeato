@@ -943,18 +943,23 @@ void OpenNeatoComponent::start_mapping_fallback_() {
   auto *eco = this->switches_[SWITCH_ECO_MODE];
   this->eco_before_mapping_ = eco != nullptr && eco->state;
   this->history_->expect_mode("explore", millis());
-  this->client_.clear_errors([this](bool) {
-    this->client_.set_user_setting("EcoMode", "ON", [this](bool ok) {
-      if (ok)
-        this->pub_switch_(SWITCH_ECO_MODE, true);
-      if (!this->client_.clean("house", [](bool started) {
-            if (!started) {
-              ESP_LOGW(TAG, "Mapping run: the robot did not start the house clean");
-            }
-          })) {
-        ESP_LOGW(TAG, "Mapping run: could not queue the house clean");
-      }
-      this->poll_soon_();
+  // Cancel the exploration first: left alone the robot stays in
+  // STARTHOUSECLEANING retrying it, beeping each time the map fails to load.
+  // Only the app's stop event leaves that state ("Clean Stop" does not).
+  this->client_.clean("stop", [this](bool) {
+    this->client_.clear_errors([this](bool) {
+      this->client_.set_user_setting("EcoMode", "ON", [this](bool ok) {
+        if (ok)
+          this->pub_switch_(SWITCH_ECO_MODE, true);
+        if (!this->client_.clean("house", [](bool started) {
+              if (!started) {
+                ESP_LOGW(TAG, "Mapping run: the robot did not start the house clean");
+              }
+            })) {
+          ESP_LOGW(TAG, "Mapping run: could not queue the house clean");
+        }
+        this->poll_soon_();
+      });
     });
   });
 }

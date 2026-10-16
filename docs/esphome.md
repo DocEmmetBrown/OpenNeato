@@ -90,8 +90,8 @@ button on the ESPHome device, the card's *Map* control (`items: [..., explore]`)
 `vacuum.send_command` with `command: explore` (also works with the web-UI firmware).
 
 Exploration is the Neato app's persistent-map feature, and most robots refuse it now that the Neato cloud is
-gone: they raise *Failed to load persistent map* (alert 234) and stay on the dock. The bridge then clears the
-alert and maps the floor with a **quiet house clean** instead (Eco on, Quick navigation), and puts Eco mode
+gone: they raise *Failed to load persistent map* (alert 234) and stay on the dock, beeping as they retry. The
+bridge then stops the attempt, clears the alert and maps the floor with a **quiet house clean** instead (Eco on, Quick navigation), and puts Eco mode
 back when it is over. Either way the run is recorded as a mapping run: when it ends its scans are merged into
 the floor plan and the result is saved as *Mapping run <date>*. On the robot device:
 

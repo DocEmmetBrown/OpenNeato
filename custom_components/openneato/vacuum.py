@@ -295,6 +295,8 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
         mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
         if mapper is not None:
             mapper.async_mapping_run_requested()
+        # The robot sits in STARTHOUSECLEANING retrying the map load until stopped.
+        await self._api.clean("stop")
         await self._api.clear_errors()
         await self._api.set_user_setting("EcoMode", "ON")
         await self._api.clean("house")
