@@ -83,17 +83,24 @@ its summary (duration, area, distance, battery) once Home Assistant reconnects, 
 
 ## 4. Mapping run and floor plans
 
-The floor plan behind the replay is built from the robot's LIDAR during cleans. To map the home without
-cleaning it, start a **mapping run**: the robot's own exploration run (`Clean Explore`, as the Neato app's
-"map run"), which drives the whole floor with the brush and vacuum off. Start it from the *Start mapping run*
-button on the ESPHome device, the card's *Map* control (`items: [..., explore]`), or
+The floor plan behind the replay is built from the robot's LIDAR during cleans. A **mapping run** is a quiet
+house clean (Eco on, Quick navigation) that is recorded as a mapping run: when it ends its scans are merged
+into the floor plan and the result is saved as *Mapping run <date>*, and Eco mode is put back. Start it from
+the *Start mapping run* button on the ESPHome device, the card's *Map* control (`items: [..., explore]`), or
 `vacuum.send_command` with `command: explore` (also works with the web-UI firmware).
 
-Exploration is the Neato app's persistent-map feature, and most robots refuse it now that the Neato cloud is
-gone: they raise *Failed to load persistent map* (alert 234) and stay on the dock, beeping as they retry. The
-bridge then stops the attempt, clears the alert and maps the floor with a **quiet house clean** instead (Eco on, Quick navigation), and puts Eco mode
-back when it is over. Either way the run is recorded as a mapping run: when it ends its scans are merged into
-the floor plan and the result is saved as *Mapping run <date>*. On the robot device:
+It does not use the robot's own exploration run (`Clean Explore`, the Neato app's map run): that needs the
+Neato cloud, and without it the robot refuses it, then every clean after it, until it is restarted.
+
+**Stuck starting a clean.** Without the cloud a robot can also get stuck starting an ordinary clean: it beeps,
+shows *Acquiring map data* (236) then *Failed to load persistent map* (234), and stays in
+`UIMGR_STATE_STARTHOUSECLEANING` / `ST_C_Standby`. See upstream's
+[user guide](https://github.com/renjfk/OpenNeato/blob/main/docs/user-guide.md#robot-stuck-starting-a-house-clean).
+The bridge recovers cleans it starts (buttons, Home Assistant, the schedule) the way that guide does: it stops
+the attempt (the app stop event; *Clean Stop* does not leave that state), clears the alert, restarts the robot,
+and starts the clean again once. To get out of it by hand: **Stop**, **Clear errors**, then **Restart robot**.
+
+On the robot device:
 
 - **Floor plan** (select): the saved plans; picking one restores it.
 - **Save floor plan** / **Reset floor plan** (buttons): save the current plan under the date and time, or

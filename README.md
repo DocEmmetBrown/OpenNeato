@@ -123,8 +123,8 @@ Assistant discovers the device; an existing entry for the same robot is migrated
 
 ### Mapping run and floor plans
 
-`vacuum.send_command` with `command: explore` (or the card's *Map* control) starts the robot's exploration
-run: it maps the whole floor without cleaning, and the resulting floor plan is saved. Floor plans can be saved,
+`vacuum.send_command` with `command: explore` (or the card's *Map* control) starts a mapping run: a quiet
+house clean (Eco on) whose floor plan is saved. (The robot's own exploration run needs the Neato cloud.) Floor plans can be saved,
 restored and frozen from the robot's *Floor plan* entities; see
 [docs/esphome.md](docs/esphome.md#4-mapping-run-and-floor-plans). For no-go lines, use magnetic boundary strip:
 the robot has no serial command for virtual ones.

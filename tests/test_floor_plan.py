@@ -217,45 +217,62 @@ async def test_mapping_run_and_services(hass: HomeAssistant, esphome_entry, esph
         await hass.services.async_call(DOMAIN, "start_mapping_run", {"entity_id": vacuum}, blocking=True)
 
 
-async def test_http_explore_falls_back_to_quiet_clean(hass: HomeAssistant) -> None:
-    """HTTP firmware: a refused exploration becomes an Eco house clean, Eco restored after."""
+def _http_vacuum(hass: HomeAssistant, states: list[tuple[str, dict]]):
     from custom_components.openneato.vacuum import OpenNeatoVacuum
 
     api = MagicMock()
-    for name in ("send_serial_command", "clear_errors", "set_user_setting", "clean"):
+    for name in ("send_serial_command", "clear_errors", "set_user_setting", "clean", "power"):
         setattr(api, name, AsyncMock(return_value={"ok": True}))
-    states = iter(
-        [
-            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 236}),
-            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 234}),
-            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": False, "errorCode": 200}),
-            ("UIMGR_STATE_IDLE", {"hasError": False, "errorCode": 200}),
-            ("UIMGR_STATE_HOUSECLEANINGRUNNING", {"hasError": False, "errorCode": 200}),
-            ("UIMGR_STATE_IDLE", {"hasError": False, "errorCode": 200}),
-        ]
-    )
+    feed = iter(states)
     coordinator = MagicMock()
     coordinator.data = {"state": {"uiState": "UIMGR_STATE_IDLE"}, "error": {}, "user_settings": {"ecoMode": False}}
 
     async def refresh() -> None:
-        ui, error = next(states, ("UIMGR_STATE_IDLE", {}))
+        ui, error = next(feed, ("UIMGR_STATE_IDLE", {}))
         coordinator.data = {**coordinator.data, "state": {"uiState": ui}, "error": error}
 
     coordinator.async_request_refresh = refresh
     vac = OpenNeatoVacuum(coordinator, api, "SER1")
-    mapper = MagicMock()
     vac.hass = hass
     vac.platform = SimpleNamespace(config_entry=SimpleNamespace(entry_id="e1"))
-    hass.data.setdefault(DOMAIN, {})["e1"] = {"mapper": mapper}
+    hass.data.setdefault(DOMAIN, {})["e1"] = {"mapper": MagicMock()}
+    return vac, api
 
-    async def fake_sleep(_s: float) -> None:
-        if vac._api.set_user_setting.await_count:
-            await refresh()
 
-    with patch("custom_components.openneato.vacuum.asyncio.sleep", fake_sleep):
-        await vac._async_explore_fallback()
+async def _no_sleep(_s: float) -> None:
+    return None
 
+
+async def test_http_mapping_run_recovers_with_restart(hass: HomeAssistant) -> None:
+    """HTTP firmware: refused (234) -> stop, clear, restart robot, clean again."""
+    vac, api = _http_vacuum(
+        hass,
+        [
+            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 236}),
+            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 234}),
+            ("UIMGR_STATE_IDLE", {}),  # stopped
+            ("UIMGR_STATE_IDLE", {}),  # back after the restart
+            ("UIMGR_STATE_HOUSECLEANINGRUNNING", {}),
+            ("UIMGR_STATE_HOUSECLEANINGRUNNING", {}),
+            ("UIMGR_STATE_IDLE", {}),  # clean over
+        ],
+    )
+    with patch("custom_components.openneato.vacuum.asyncio.sleep", _no_sleep):
+        await vac._async_quiet_mapping_run()
+
+    assert [c.args for c in api.clean.await_args_list] == [("house",), ("stop",), ("house",)]
     api.clear_errors.assert_awaited_once()
-    assert [c.args for c in api.clean.await_args_list] == [("stop",), ("house",)]
-    mapper.async_mapping_run_requested.assert_called_once()
+    api.power.assert_awaited_once_with("restart")
+    api.send_serial_command.assert_not_awaited()  # never Clean Explore
     assert [c.args for c in api.set_user_setting.await_args_list] == [("EcoMode", "ON"), ("EcoMode", "OFF")]
+
+
+async def test_http_mapping_run_gives_up(hass: HomeAssistant) -> None:
+    refused = ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 234})
+    idle = ("UIMGR_STATE_IDLE", {})
+    vac, api = _http_vacuum(hass, [refused, idle, idle, refused])
+    with patch("custom_components.openneato.vacuum.asyncio.sleep", _no_sleep):
+        await vac._async_quiet_mapping_run()
+    assert [c.args for c in api.clean.await_args_list] == [("house",), ("stop",), ("house",), ("stop",)]
+    api.power.assert_awaited_once_with("restart")
+    assert api.set_user_setting.await_args_list[-1].args == ("EcoMode", "OFF")

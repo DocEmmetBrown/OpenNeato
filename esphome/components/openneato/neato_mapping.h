@@ -1,12 +1,17 @@
-// Mapping run: the robot's exploration run (Clean Explore), with a fallback.
+// Start guard: recovers cleans the robot refuses with a persistent-map alert,
+// and runs the mapping run.
 //
-// Exploration is the Neato app's persistent-map feature: before driving off
-// the robot asks the (now shut down) Neato cloud for a map slot, and without
-// one it raises a persistent-map alert (234 "Failed to load persistent map"
-// and friends) and stays put. MappingRun watches for that and tells the
-// component to fall back to a quiet house clean (Eco, Quick navigation),
-// then to restore the user's settings once that clean is over.
-// Pure C++17, host-tested.
+// Without the Neato cloud some robots get stuck starting a clean: alert 234
+// "Failed to load persistent map", UI state STARTHOUSECLEANING, robot state
+// ST_C_Standby, beeping. Once there, every clean is refused until the robot
+// restarts (also documented upstream: renjfk/OpenNeato docs/user-guide.md,
+// "Robot stuck starting a house clean"). The exploration run (Clean Explore)
+// reliably puts it there, so the mapping run is a quiet house clean instead
+// (Eco on, Quick navigation) and Clean Explore is never sent.
+//
+// StartGuard follows one clean started by the bridge: on a refusal it has the
+// component stop it (app stop event), restart the robot, and start it again,
+// once. Pure C++17, host-tested.
 #ifndef OPENNEATO_NEATO_MAPPING_H
 #define OPENNEATO_NEATO_MAPPING_H
 
@@ -15,38 +20,49 @@
 
 namespace neatocore {
 
-class MappingRun {
+class StartGuard {
  public:
-  // STOP: cancel the refused exploration (app stop event) and clear the alert.
-  // START: Eco on and a house clean (navigation forced to Quick meanwhile).
-  // RESTORE: put Eco mode back.
-  enum class Action : uint8_t { NONE, STOP, START, RESTORE };
+  enum class Kind : uint8_t { HOUSE, SPOT, MAPPING };
+  // STOP: app stop event + clear errors. RESTART: power-cycle the robot.
+  // START: start the clean again (for MAPPING: Eco on + house clean).
+  // DONE: the clean is over or given up; restore what a mapping run changed.
+  enum class Action : uint8_t { NONE, STOP, RESTART, START, DONE };
 
-  // Exploration requested now.
-  void start(uint32_t now_ms);
-  // One GetState/GetErr snapshot; returns what the component must do.
-  Action update(const std::string &ui, bool has_error, int error_code, uint32_t now_ms);
-  // True while the fallback clean is starting or running (settings overridden).
-  bool overriding() const { return this->phase_ == Phase::STARTING || this->phase_ == Phase::RUNNING; }
+  // A clean of `kind` was just sent to the robot.
+  void begin(Kind kind, uint32_t now_ms);
+  // One GetState/GetErr snapshot (+ whether the robot answers); returns what
+  // the component must do.
+  Action update(const std::string &ui, bool has_error, int error_code, bool connected, uint32_t now_ms);
+
   bool busy() const { return this->phase_ != Phase::IDLE; }
+  Kind kind() const { return this->kind_; }
+  // A mapping run is in progress (Eco and navigation overridden).
+  bool mapping() const { return this->busy() && this->kind_ == Kind::MAPPING; }
+  // The last update gave up (the robot refused the clean after a restart too).
+  bool gave_up() const { return this->gave_up_; }
 
   // Alerts meaning the persistent map could not be had. 236 (acquiring map
   // data) is the attempt in progress, not a failure.
   static bool is_persistent_map_failure(int error_code);
 
-  static constexpr uint32_t EXPLORE_TIMEOUT_MS = 120000;
-  // Re-send the stop / start when the robot has not reacted after this long,
-  // and give up after the matching timeout.
-  static constexpr uint32_t RETRY_MS = 30000;
+  static constexpr uint32_t RETRY_MS = 30000;          // re-send stop/start not taken
+  static constexpr uint32_t START_TIMEOUT_MS = 120000;  // clean never got going
   static constexpr uint32_t STOP_TIMEOUT_MS = 120000;
-  static constexpr uint32_t START_TIMEOUT_MS = 120000;
+  static constexpr uint32_t RESTART_MIN_MS = 20000;     // let the robot actually go down
+  static constexpr uint32_t RESTART_TIMEOUT_MS = 180000;
 
  private:
-  enum class Phase : uint8_t { IDLE, EXPLORING, STOPPING, STARTING, RUNNING };
+  enum class Phase : uint8_t { IDLE, STARTING, STOPPING, RESTARTING, RUNNING };
   Action enter_(Phase phase, uint32_t now_ms, Action action);
+  Action finish_(bool gave_up);
   Phase phase_{Phase::IDLE};
+  Kind kind_{Kind::HOUSE};
   uint32_t since_ms_{0};
   uint32_t sent_ms_{0};
+  bool retried_{false};
+  bool giving_up_{false};
+  bool saw_disconnect_{false};
+  bool gave_up_{false};
 };
 
 }  // namespace neatocore

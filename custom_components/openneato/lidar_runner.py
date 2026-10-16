@@ -46,7 +46,7 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 PLANS_STORAGE_VERSION = 1
-# Session header mode of a mapping run (`Clean Explore`).
+# Session header mode of a mapping run.
 MODE_EXPLORE = "explore"
 MAX_PLANS = 20
 MAPPING_RUN_WINDOW = 300.0

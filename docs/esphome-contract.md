@@ -141,7 +141,7 @@ Timestamp sensors are ESPHome float32 values, so `next_clean` / `clean_started` 
 | Shut down robot | `shut_down_robot` |
 | New battery | `new_battery` |
 | Sync robot clock | `sync_robot_clock` |
-| Start mapping run | `start_mapping_run` (`Clean Explore`) |
+| Start mapping run | `start_mapping_run` (quiet house clean, saved as a floor plan) |
 
 ### event
 
@@ -176,7 +176,7 @@ Failures respond `success: false` with an `error_message`. Actions that need a s
 
 | Action | Variables | Response `data` |
 |---|---|---|
-| `clean` | `action: string` — `house` (start, or resume when paused), `spot`, `pause`, `stop`, `dock`, `explore` (mapping run: `Clean Explore`, the Smart App exploration run, no cleaning; if the robot fails with a persistent-map alert — 231, 234, 235, 238, 239 (236 is the attempt in progress) — the device sends the stop event, clears the alert, waits for idle and runs a house clean with Eco on and Quick navigation instead, restoring Eco afterwards) | `{}` |
+| `clean` | `action: string` — `house` (start, or resume when paused), `spot`, `pause`, `stop`, `dock`, `explore` (mapping run: a house clean with Eco on and Quick navigation, recorded with session mode `explore`, Eco restored afterwards; `Clean Explore` is never sent). New house/spot cleans and mapping runs are guarded: on a persistent-map failure (231, 234, 235, 238, 239; 236 is the attempt in progress) the device sends the stop event, clears the alert, restarts the robot and starts the clean again once | `{}` |
 | `play_sound` | `sound_id: int` (0–20) | `{}` |
 | `set_user_setting` | `key: string`, `value: string` — `SetUserSettings` key/value (`EcoMode`, `ON`) | `{}` |
 | `send_command` | `command: string` — raw serial command | `{"response": "<raw text including the command echo, without 0x1A>"}` |

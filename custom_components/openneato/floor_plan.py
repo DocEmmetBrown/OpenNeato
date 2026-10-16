@@ -1,7 +1,7 @@
 """Floor-plan entities: pick, save, reset and freeze the LIDAR floor plan.
 
 The plan is the map the integration builds from the robot's LIDAR
-(lidar_runner.py). A mapping run (`Clean Explore`) is saved automatically;
+(lidar_runner.py). A mapping run (a quiet house clean) is saved automatically;
 these entities let the plan be kept as it is (stop learning from ordinary
 cleans), saved under a name, restored later or started again from scratch.
 """

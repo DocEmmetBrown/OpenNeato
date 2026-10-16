@@ -461,7 +461,7 @@
   "services": {
     "start_mapping_run": {
       "name": "Start mapping run",
-      "description": "Explore the whole floor without cleaning (the robot's exploration run) to build the floor plan. The result is merged and saved as a floor plan."
+      "description": "Map the floor with a quiet house clean (Eco on); the result is merged and saved as a floor plan. The robot's own exploration run needs the Neato cloud and is not used."
     },
     "save_floor_plan": {
       "name": "Save floor plan",

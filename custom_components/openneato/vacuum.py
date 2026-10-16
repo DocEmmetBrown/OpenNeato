@@ -25,7 +25,7 @@ from .const import DOMAIN, FAN_SPEEDS, UISTATE_SUBSTRINGS
 from .entity import OpenNeatoEntity
 from .esphome_backend import OpenNeatoEsphomeClient
 
-# vacuum.send_command commands that start a mapping run (`Clean Explore`)
+# vacuum.send_command commands that start a mapping run
 MAPPING_RUN_COMMANDS = ("explore", "mapping_run", "map")
 SERVICE_START_MAPPING_RUN = "start_mapping_run"
 SERVICE_SAVE_FLOOR_PLAN = "save_floor_plan"
@@ -43,7 +43,8 @@ PERSISTENT_MAP_ALERTS = frozenset({231, 234, 235, 238, 239})
 EXPLORE_TIMEOUT_S = 120.0
 STOP_TIMEOUT_S = 120.0
 FALLBACK_TIMEOUT_S = 6 * 3600.0
-FALLBACK_START_TIMEOUT_S = 120.0
+ROBOT_RESTART_S = 45.0
+IDLE_STATES = ("UIMGR_STATE_IDLE", "UIMGR_STATE_STANDBY")
 FALLBACK_POLL_S = 30.0
 EXPLORE_POLL_S = 3.0
 ATTR_NAME = "name"
@@ -261,74 +262,70 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
         return mapper
 
     async def async_start_mapping_run(self) -> None:
-        """Explore the whole floor without cleaning (Clean Explore) to map it."""
+        """Map the floor with a quiet house clean (Eco on), saved as a floor plan.
+
+        The robot's own exploration run (Clean Explore) needs the Neato cloud:
+        without it the robot refuses it and every clean after it until it is
+        restarted, so it is never sent.
+        """
         if self.activity not in (VacuumActivity.DOCKED, VacuumActivity.IDLE):
             raise HomeAssistantError("Stop the robot before starting a mapping run")
         mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
         if mapper is not None:
             mapper.async_mapping_run_requested()
         if isinstance(self._api, OpenNeatoEsphomeClient):
+            # The firmware runs it, with the persistent-map recovery (neato_mapping.h).
             await self._api.clean("explore")
         else:
-            await self._api.send_serial_command("Clean Explore")
-            self.hass.async_create_background_task(
-                self._async_explore_fallback(), f"{DOMAIN} mapping run fallback"
-            )
+            self.hass.async_create_background_task(self._async_quiet_mapping_run(), f"{DOMAIN} mapping run")
         await self.coordinator.async_request_refresh()
 
-    async def _async_explore_fallback(self) -> None:
-        """HTTP firmware: if exploration is refused, map with a quiet house clean."""
-        deadline = time.monotonic() + EXPLORE_TIMEOUT_S
-        while time.monotonic() < deadline:
-            await asyncio.sleep(EXPLORE_POLL_S)
-            await self.coordinator.async_request_refresh()
-            data = self.coordinator.data or {}
-            ui = (data.get("state") or {}).get("uiState", "")
-            error = data.get("error") or {}
-            if "CLEANINGRUNNING" in ui:
-                return  # exploring after all
-            if error.get("hasError") and int(error.get("errorCode") or 0) in PERSISTENT_MAP_ALERTS:
-                break
-        else:
-            return
+    def _ui(self) -> str:
+        return ((self.coordinator.data or {}).get("state") or {}).get("uiState", "")
 
-        _LOGGER.warning("Exploration refused (no persistent map): mapping with a quiet house clean instead")
+    async def _async_wait(self, done, timeout: float, poll: float) -> bool:
+        """Poll the coordinator until done(ui, error) or timeout."""
+        began = time.monotonic()
+        while time.monotonic() - began < timeout:
+            await asyncio.sleep(poll)
+            await self.coordinator.async_request_refresh()
+            if done(self._ui(), (self.coordinator.data or {}).get("error") or {}):
+                return True
+        return False
+
+    async def _async_quiet_mapping_run(self) -> None:
+        """HTTP firmware: Eco on, house clean, persistent-map recovery, Eco back."""
         eco_before = bool((self.coordinator.data or {}).get("user_settings", {}).get("ecoMode"))
-        mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
-        if mapper is not None:
-            mapper.async_mapping_run_requested()
-        # The robot sits in STARTHOUSECLEANING retrying the map load until
-        # stopped, and only takes a new clean once it is back to idle.
-        await self._api.clean("stop")
-        await self._api.clear_errors()
-        began = time.monotonic()
-        while True:
-            ui = ((self.coordinator.data or {}).get("state") or {}).get("uiState", "")
-            if ui in ("UIMGR_STATE_IDLE", "UIMGR_STATE_STANDBY"):
-                break
-            if time.monotonic() - began > STOP_TIMEOUT_S:
-                _LOGGER.warning("Mapping run: the robot did not stop the refused exploration; giving up")
-                return
-            await asyncio.sleep(EXPLORE_POLL_S)
-            await self.coordinator.async_request_refresh()
         await self._api.set_user_setting("EcoMode", "ON")
-        await self._api.clean("house")
-        if eco_before:
-            return
+        try:
+            for attempt in range(2):
+                await self._api.clean("house")
+                refused = False
 
-        # Put Eco mode back once the clean is over.
-        began = time.monotonic()
-        started = False
-        while time.monotonic() - began < FALLBACK_TIMEOUT_S:
-            await asyncio.sleep(FALLBACK_POLL_S)
-            ui = ((self.coordinator.data or {}).get("state") or {}).get("uiState", "")
-            if "CLEANINGRUNNING" in ui:
-                started = True
-            elif ui in ("UIMGR_STATE_IDLE", "UIMGR_STATE_STANDBY") and (
-                started or time.monotonic() - began > FALLBACK_START_TIMEOUT_S
-            ):
-                break
-        await self._api.set_user_setting("EcoMode", "OFF")
+                def started(ui: str, error: dict[str, Any]) -> bool:
+                    nonlocal refused
+                    refused = bool(error.get("hasError")) and int(error.get("errorCode") or 0) in PERSISTENT_MAP_ALERTS
+                    return refused or "CLEANINGRUNNING" in ui
+
+                if not await self._async_wait(started, EXPLORE_TIMEOUT_S, EXPLORE_POLL_S) or not refused:
+                    break
+                # Stuck starting: stop (only the app event leaves that state),
+                # clear, and restart the robot before trying once more.
+                _LOGGER.warning("Mapping run refused (persistent map): restarting the robot")
+                await self._api.clean("stop")
+                await self._api.clear_errors()
+                if attempt or not await self._async_wait(lambda ui, _e: ui in IDLE_STATES, STOP_TIMEOUT_S, EXPLORE_POLL_S):
+                    _LOGGER.warning("Mapping run: the robot would not start the clean; giving up")
+                    return
+                await self._api.power("restart")
+                await asyncio.sleep(ROBOT_RESTART_S)
+                if not await self._async_wait(lambda ui, _e: ui in IDLE_STATES, STOP_TIMEOUT_S, EXPLORE_POLL_S):
+                    return
+            # Wait for the clean to end before putting Eco back.
+            await self._async_wait(lambda ui, _e: ui in IDLE_STATES, FALLBACK_TIMEOUT_S, FALLBACK_POLL_S)
+        finally:
+            if not eco_before:
+                await self._api.set_user_setting("EcoMode", "OFF")
 
     async def async_manual_move(self, left_mm: int, right_mm: int, speed: int = 150) -> None:
         """Drive the wheels in manual mode (ESPHome firmware only)."""

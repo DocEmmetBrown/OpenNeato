@@ -190,7 +190,7 @@ void OpenNeatoComponent::setup() {
     this->poll_soon_();
   });
   this->client_.set_nav_mode_getter([this]() -> std::string {
-    if (this->mapping_.overriding())
+    if (this->guard_.mapping())
       return "Quick";  // mapping-run fallback: cover the floor fast
     auto *sel = this->selects_[SELECT_NAVIGATION_MODE];
     if (sel == nullptr || !sel->has_state())
@@ -340,17 +340,27 @@ void OpenNeatoComponent::handle_state_(const neatocore::RobotState &state, bool 
   for (const char *ev : this->events_.update_state(ui, state.robot_state))
     this->fire_event_(ev);
 
-  switch (this->mapping_.update(ui, this->has_error_, this->error_code_, millis())) {
-    case neatocore::MappingRun::Action::STOP:
-      this->stop_refused_exploration_();
+  switch (this->guard_.update(ui, this->has_error_, this->error_code_, this->connected_, millis())) {
+    case neatocore::StartGuard::Action::STOP:
+      // Stuck starting (persistent map). Only the app's stop event leaves
+      // STARTHOUSECLEANING ("Clean Stop" does not).
+      ESP_LOGW(TAG, "Clean refused (alert %d): stopping it, then restarting the robot", this->error_code_);
+      this->client_.clean("stop", [this](bool) {
+        this->client_.clear_errors(nullptr);
+        this->poll_soon_();
+      });
       break;
-    case neatocore::MappingRun::Action::START:
-      this->start_mapping_fallback_();
+    case neatocore::StartGuard::Action::RESTART:
+      ESP_LOGW(TAG, "Restarting the robot to clear its persistent-map state");
+      this->client_.power_control("restart", nullptr);
       break;
-    case neatocore::MappingRun::Action::RESTORE:
-      this->restore_after_mapping_();
+    case neatocore::StartGuard::Action::START:
+      this->send_guarded_start_();
       break;
-    case neatocore::MappingRun::Action::NONE:
+    case neatocore::StartGuard::Action::DONE:
+      this->finish_guarded_();
+      break;
+    case neatocore::StartGuard::Action::NONE:
       break;
   }
 
@@ -522,11 +532,7 @@ void OpenNeatoComponent::tick_scheduler_() {
           return;
         this->pending_clean_after_restart_ = false;
         ESP_LOGI(TAG, "Robot ready after restart, starting scheduled clean");
-        this->client_.clean("house", [](bool started) {
-          if (!started) {
-            ESP_LOGW(TAG, "Scheduled clean failed to start");
-          }
-        });
+        this->start_guarded_(neatocore::StartGuard::Kind::HOUSE);
       });
     }
   }
@@ -582,11 +588,7 @@ void OpenNeatoComponent::trigger_scheduled_clean_(int day, int slot) {
     if (!this->schedule_.enabled || !this->schedule_.slots[day][slot].on)
       return;
     ESP_LOGI(TAG, "Starting scheduled clean (%s slot %d)", neatocore::SCHEDULE_DAY_NAMES[day], slot + 1);
-    this->client_.clean("house", [](bool started) {
-      if (!started) {
-        ESP_LOGW(TAG, "Scheduled clean failed to start");
-      }
-    });
+    this->start_guarded_(neatocore::StartGuard::Kind::HOUSE);
   });
 }
 
@@ -936,45 +938,52 @@ void OpenNeatoComponent::manual_mode_(bool on) {
     this->publish_manual_();
 }
 
-// -- Mapping run fallback ----------------------------------------------------------
+// -- Guarded starts (persistent-map recovery, mapping run) --------------------------
 
-// The robot refused the exploration run (no persistent map without the Neato
-// cloud) and sits in STARTHOUSECLEANING retrying it, beeping. Only the app's
-// stop event gets it out ("Clean Stop" does not); MappingRun then waits for
-// idle before START.
-void OpenNeatoComponent::stop_refused_exploration_() {
-  ESP_LOGW(TAG, "Exploration refused (alert %d): stopping it, then mapping with a quiet house clean",
-           this->error_code_);
-  this->client_.clean("stop", [this](bool) {
-    this->client_.clear_errors(nullptr);
-    this->poll_soon_();
-  });
+// Starts a clean the robot may refuse with a persistent-map alert (see
+// neato_mapping.h). A mapping run is a quiet house clean: Eco on, Quick
+// navigation (nav mode getter), recorded with mode "explore".
+void OpenNeatoComponent::start_guarded_(neatocore::StartGuard::Kind kind) {
+  if (kind == neatocore::StartGuard::Kind::MAPPING) {
+    auto *eco = this->switches_[SWITCH_ECO_MODE];
+    this->eco_before_mapping_ = eco != nullptr && eco->state;
+    this->eco_overridden_ = true;
+  }
+  this->guard_.begin(kind, millis());
+  this->send_guarded_start_();
 }
 
-// Map the floor with a quiet house clean instead -- Eco on, Quick navigation
-// (see the nav mode getter) -- still recorded as a mapping run.
-void OpenNeatoComponent::start_mapping_fallback_() {
-  ESP_LOGI(TAG, "Mapping run: starting a quiet house clean");
-  auto *eco = this->switches_[SWITCH_ECO_MODE];
-  if (eco != nullptr && !(eco->state && this->eco_overridden_))
-    this->eco_before_mapping_ = eco->state;
-  this->eco_overridden_ = true;
-  this->history_->expect_mode("explore", millis());
-  this->client_.set_user_setting("EcoMode", "ON", [this](bool ok) {
-    if (ok)
-      this->pub_switch_(SWITCH_ECO_MODE, true);
-    if (!this->client_.clean("house", [](bool started) {
-          if (!started) {
-            ESP_LOGW(TAG, "Mapping run: the robot did not accept the house clean");
+void OpenNeatoComponent::send_guarded_start_() {
+  auto kind = this->guard_.kind();
+  const char *action = kind == neatocore::StartGuard::Kind::SPOT ? "spot" : "house";
+  auto start = [this, action]() {
+    if (!this->client_.clean(action, [action](bool ok) {
+          if (!ok) {
+            ESP_LOGW(TAG, "clean %s: robot did not accept the command", action);
           }
         })) {
-      ESP_LOGW(TAG, "Mapping run: could not queue the house clean");
+      ESP_LOGW(TAG, "clean %s: serial queue full", action);
     }
     this->poll_soon_();
+  };
+  if (kind != neatocore::StartGuard::Kind::MAPPING) {
+    start();
+    return;
+  }
+  ESP_LOGI(TAG, "Mapping run: starting a quiet house clean");
+  this->history_->expect_mode("explore", millis());
+  this->client_.set_user_setting("EcoMode", "ON", [this, start](bool ok) {
+    if (ok)
+      this->pub_switch_(SWITCH_ECO_MODE, true);
+    start();
   });
 }
 
-void OpenNeatoComponent::restore_after_mapping_() {
+void OpenNeatoComponent::finish_guarded_() {
+  if (this->guard_.gave_up())
+    ESP_LOGW(TAG, "The robot would not start the clean (persistent map); giving up");
+  if (!this->eco_overridden_)
+    return;
   this->eco_overridden_ = false;
   ESP_LOGI(TAG, "Mapping run over: restoring Eco mode %s", this->eco_before_mapping_ ? "on" : "off");
   if (this->eco_before_mapping_)
@@ -1001,17 +1010,23 @@ bool OpenNeatoComponent::api_clean(const std::string &action) {
     this->set_error_("manual mode is active");
     return false;
   }
-  if (!this->client_.clean(action, [action](bool ok) {
-        if (!ok) {
-          ESP_LOGW(TAG, "clean %s: robot did not accept the command", action.c_str());
-        }
-      })) {
+  // New cleans are guarded against the persistent-map refusal; "explore"
+  // (mapping run) is a quiet house clean: Clean Explore leaves robots without
+  // the Neato cloud stuck until restarted.
+  const std::string &ui = this->ui_state_;
+  bool resume = (action == "house" && ui.find("HOUSECLEANINGPAUSED") != std::string::npos) ||
+                (action == "spot" && ui.find("SPOTCLEANINGPAUSED") != std::string::npos);
+  if (action == "explore") {
+    this->start_guarded_(neatocore::StartGuard::Kind::MAPPING);
+  } else if ((action == "house" || action == "spot") && !resume) {
+    this->start_guarded_(action == "house" ? neatocore::StartGuard::Kind::HOUSE : neatocore::StartGuard::Kind::SPOT);
+  } else if (!this->client_.clean(action, [action](bool ok) {
+               if (!ok) {
+                 ESP_LOGW(TAG, "clean %s: robot did not accept the command", action.c_str());
+               }
+             })) {
     this->set_error_("serial queue full");
     return false;
-  }
-  if (action == "explore") {
-    this->history_->expect_mode("explore", millis());
-    this->mapping_.start(millis());
   }
   this->poll_soon_();
   this->last_error_.clear();

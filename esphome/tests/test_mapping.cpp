@@ -1,72 +1,87 @@
-// MappingRun: exploration with a quiet-house-clean fallback.
+// StartGuard: persistent-map recovery and the mapping run.
 #include "test_framework.h"
 
 #include "../components/openneato/neato_mapping.h"
 
-using neatocore::MappingRun;
-using Action = MappingRun::Action;
+using neatocore::StartGuard;
+using Action = StartGuard::Action;
+using Kind = StartGuard::Kind;
 
-static const char *START = "UIMGR_STATE_STARTHOUSECLEANING";
+static const char *STARTING = "UIMGR_STATE_STARTHOUSECLEANING";
 static const char *RUN = "UIMGR_STATE_HOUSECLEANINGRUNNING";
 static const char *IDLE = "UIMGR_STATE_IDLE";
 
-TEST(mapping_waits_for_failure_then_idle) {
-  MappingRun m;
-  CHECK(m.update(IDLE, false, 200, 0) == Action::NONE);
-  m.start(1000);
-  CHECK(m.busy());
-  // 236 "Acquiring map data" is the attempt in progress: wait.
-  CHECK(m.update(START, true, 236, 11000) == Action::NONE);
-  CHECK(m.update(START, true, 234, 21000) == Action::STOP);
-  CHECK(!m.overriding());
-  CHECK(m.update(START, true, 234, 23000) == Action::NONE);  // still stopping
-  CHECK(m.update(IDLE, false, 200, 35000) == Action::START);
-  CHECK(m.overriding());
-  CHECK(m.update(IDLE, false, 200, 37000) == Action::NONE);  // starting
-  CHECK(m.update(RUN, false, 200, 45000) == Action::NONE);
-  CHECK(m.update("UIMGR_STATE_DOCKINGRUNNING", false, 200, 900000) == Action::NONE);
-  CHECK(m.update(IDLE, false, 200, 1000000) == Action::RESTORE);
-  CHECK(!m.busy());
-  CHECK(!m.overriding());
+TEST(guard_house_clean_that_starts_needs_nothing) {
+  StartGuard g;
+  CHECK(g.update(IDLE, false, 200, true, 0) == Action::NONE);
+  g.begin(Kind::HOUSE, 0);
+  CHECK(g.busy());
+  CHECK(!g.mapping());
+  CHECK(g.update(STARTING, true, 236, true, 3000) == Action::NONE);  // acquiring: wait
+  CHECK(g.update(RUN, false, 200, true, 8000) == Action::DONE);
+  CHECK(!g.busy());
+  CHECK(!g.gave_up());
 }
 
-TEST(mapping_retries_stop_and_start) {
-  MappingRun m;
-  m.start(0);
-  CHECK(m.update(START, true, 234, 1000) == Action::STOP);
-  CHECK(m.update(START, true, 234, 1000 + MappingRun::RETRY_MS) == Action::STOP);
-  CHECK(m.update(IDLE, false, 200, 40000) == Action::START);
-  CHECK(m.update(IDLE, false, 200, 40000 + MappingRun::RETRY_MS) == Action::START);
-  CHECK(m.update(START, false, 200, 80000) == Action::NONE);  // accepted, getting going
-  CHECK(m.update(IDLE, false, 200, 40000 + MappingRun::START_TIMEOUT_MS + 1) == Action::RESTORE);
+TEST(guard_recovers_with_a_robot_restart) {
+  // What a Botvac D5 without the Neato cloud does (field log 2026-10-16).
+  StartGuard g;
+  g.begin(Kind::MAPPING, 0);
+  CHECK(g.mapping());
+  CHECK(g.update(STARTING, true, 236, true, 1000) == Action::NONE);
+  CHECK(g.update(STARTING, true, 234, true, 11000) == Action::STOP);
+  CHECK(g.update(STARTING, true, 234, true, 13000) == Action::NONE);
+  CHECK(g.update(IDLE, false, 200, true, 25000) == Action::RESTART);
+  // The robot drops off the serial link while it reboots, then comes back idle.
+  CHECK(g.update(IDLE, false, 200, true, 27000) == Action::NONE);
+  CHECK(g.update(IDLE, false, 200, false, 35000) == Action::NONE);
+  CHECK(g.update(IDLE, false, 200, true, 70000) == Action::START);
+  CHECK(g.mapping());
+  CHECK(g.update(RUN, false, 200, true, 76000) == Action::NONE);
+  CHECK(g.update("UIMGR_STATE_DOCKINGRUNNING", false, 200, true, 900000) == Action::NONE);
+  CHECK(g.update(IDLE, false, 200, true, 1000000) == Action::DONE);
+  CHECK(!g.gave_up());
+  CHECK(!g.mapping());
 }
 
-TEST(mapping_exploration_that_runs_needs_nothing) {
-  MappingRun m;
-  m.start(0);
-  CHECK(m.update(RUN, false, 200, 5000) == Action::NONE);
-  CHECK(!m.busy());
-  CHECK(m.update(IDLE, true, 234, 6000) == Action::NONE);
+TEST(guard_gives_up_after_a_second_refusal) {
+  StartGuard g;
+  g.begin(Kind::HOUSE, 0);
+  CHECK(g.update(STARTING, true, 234, true, 10000) == Action::STOP);
+  CHECK(g.update(IDLE, false, 200, true, 20000) == Action::RESTART);
+  CHECK(g.update(IDLE, false, 200, false, 25000) == Action::NONE);
+  CHECK(g.update(IDLE, false, 200, true, 60000) == Action::START);
+  CHECK(g.update(STARTING, true, 234, true, 70000) == Action::STOP);
+  CHECK(g.update(IDLE, false, 200, true, 80000) == Action::DONE);
+  CHECK(g.gave_up());
+  CHECK(!g.busy());
 }
 
-TEST(mapping_timeouts) {
-  MappingRun m;
-  m.start(0);
-  CHECK(m.update(START, false, 200, MappingRun::EXPLORE_TIMEOUT_MS + 1) == Action::NONE);
-  CHECK(!m.busy());
+TEST(guard_retries_and_times_out) {
+  StartGuard g;
+  g.begin(Kind::SPOT, 0);
+  // Start ignored: re-sent while the robot stays idle.
+  CHECK(g.update(IDLE, false, 200, true, StartGuard::RETRY_MS) == Action::START);
+  CHECK(g.update(IDLE, false, 200, true, StartGuard::START_TIMEOUT_MS + 1) == Action::DONE);
+  CHECK(g.gave_up());
 
-  m.start(0);
-  CHECK(m.update(START, true, 235, 1000) == Action::STOP);
-  // Never leaves STARTHOUSECLEANING: give up without touching Eco.
-  CHECK(m.update(START, true, 235, 1000 + MappingRun::STOP_TIMEOUT_MS + 1) == Action::NONE);
-  CHECK(!m.busy());
+  g.begin(Kind::HOUSE, 0);
+  CHECK(g.update(STARTING, true, 235, true, 1000) == Action::STOP);
+  CHECK(g.update(STARTING, true, 235, true, 1000 + StartGuard::RETRY_MS) == Action::STOP);
+  CHECK(g.update(STARTING, true, 235, true, 1000 + StartGuard::STOP_TIMEOUT_MS + 1) == Action::DONE);
+
+  // Robot never answers again after the restart.
+  g.begin(Kind::HOUSE, 0);
+  CHECK(g.update(STARTING, true, 234, true, 1000) == Action::STOP);
+  CHECK(g.update(IDLE, false, 200, true, 2000) == Action::RESTART);
+  CHECK(g.update(IDLE, false, 200, false, 2000 + StartGuard::RESTART_TIMEOUT_MS + 1) == Action::DONE);
 }
 
-TEST(mapping_other_errors_do_not_fall_back) {
-  MappingRun m;
-  m.start(0);
-  CHECK(m.update(START, true, 222, 2000) == Action::NONE);  // bin full
-  CHECK(m.busy());
-  CHECK(!MappingRun::is_persistent_map_failure(236));
-  CHECK(MappingRun::is_persistent_map_failure(234));
+TEST(guard_ignores_other_errors) {
+  StartGuard g;
+  g.begin(Kind::HOUSE, 0);
+  CHECK(g.update(STARTING, true, 222, true, 2000) == Action::NONE);  // bin full
+  CHECK(g.busy());
+  CHECK(!StartGuard::is_persistent_map_failure(236));
+  CHECK(StartGuard::is_persistent_map_failure(234));
 }

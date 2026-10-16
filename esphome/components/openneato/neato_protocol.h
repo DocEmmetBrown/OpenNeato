@@ -26,8 +26,6 @@ namespace neatocore {
 #define NEATO_CMD_GET_USER_SETTINGS "GetUserSettings"
 #define NEATO_CMD_SET_USER_SETTINGS "SetUserSettings"
 #define NEATO_CMD_SET_NAVIGATION_MODE "SetNavigationMode"
-// Smart App exploration (mapping) run: drives the whole floor without cleaning.
-#define NEATO_CMD_CLEAN_EXPLORE "Clean Explore"
 #define NEATO_CMD_TEST_MODE_ON "TestMode On"
 #define NEATO_CMD_TEST_MODE_OFF "TestMode Off"
 #define NEATO_CMD_SET_LDS_ROTATION_ON "SetLDSRotation On"
