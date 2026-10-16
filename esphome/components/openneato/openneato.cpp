@@ -341,7 +341,10 @@ void OpenNeatoComponent::handle_state_(const neatocore::RobotState &state, bool 
     this->fire_event_(ev);
 
   switch (this->mapping_.update(ui, this->has_error_, this->error_code_, millis())) {
-    case neatocore::MappingRun::Action::FALLBACK:
+    case neatocore::MappingRun::Action::STOP:
+      this->stop_refused_exploration_();
+      break;
+    case neatocore::MappingRun::Action::START:
       this->start_mapping_fallback_();
       break;
     case neatocore::MappingRun::Action::RESTORE:
@@ -936,35 +939,43 @@ void OpenNeatoComponent::manual_mode_(bool on) {
 // -- Mapping run fallback ----------------------------------------------------------
 
 // The robot refused the exploration run (no persistent map without the Neato
-// cloud): map the floor with a quiet house clean instead -- Eco on, Quick
-// navigation -- still recorded as a mapping run.
-void OpenNeatoComponent::start_mapping_fallback_() {
-  ESP_LOGW(TAG, "Exploration refused (alert %d): mapping with a quiet house clean instead", this->error_code_);
-  auto *eco = this->switches_[SWITCH_ECO_MODE];
-  this->eco_before_mapping_ = eco != nullptr && eco->state;
-  this->history_->expect_mode("explore", millis());
-  // Cancel the exploration first: left alone the robot stays in
-  // STARTHOUSECLEANING retrying it, beeping each time the map fails to load.
-  // Only the app's stop event leaves that state ("Clean Stop" does not).
+// cloud) and sits in STARTHOUSECLEANING retrying it, beeping. Only the app's
+// stop event gets it out ("Clean Stop" does not); MappingRun then waits for
+// idle before START.
+void OpenNeatoComponent::stop_refused_exploration_() {
+  ESP_LOGW(TAG, "Exploration refused (alert %d): stopping it, then mapping with a quiet house clean",
+           this->error_code_);
   this->client_.clean("stop", [this](bool) {
-    this->client_.clear_errors([this](bool) {
-      this->client_.set_user_setting("EcoMode", "ON", [this](bool ok) {
-        if (ok)
-          this->pub_switch_(SWITCH_ECO_MODE, true);
-        if (!this->client_.clean("house", [](bool started) {
-              if (!started) {
-                ESP_LOGW(TAG, "Mapping run: the robot did not start the house clean");
-              }
-            })) {
-          ESP_LOGW(TAG, "Mapping run: could not queue the house clean");
-        }
-        this->poll_soon_();
-      });
-    });
+    this->client_.clear_errors(nullptr);
+    this->poll_soon_();
+  });
+}
+
+// Map the floor with a quiet house clean instead -- Eco on, Quick navigation
+// (see the nav mode getter) -- still recorded as a mapping run.
+void OpenNeatoComponent::start_mapping_fallback_() {
+  ESP_LOGI(TAG, "Mapping run: starting a quiet house clean");
+  auto *eco = this->switches_[SWITCH_ECO_MODE];
+  if (eco != nullptr && !(eco->state && this->eco_overridden_))
+    this->eco_before_mapping_ = eco->state;
+  this->eco_overridden_ = true;
+  this->history_->expect_mode("explore", millis());
+  this->client_.set_user_setting("EcoMode", "ON", [this](bool ok) {
+    if (ok)
+      this->pub_switch_(SWITCH_ECO_MODE, true);
+    if (!this->client_.clean("house", [](bool started) {
+          if (!started) {
+            ESP_LOGW(TAG, "Mapping run: the robot did not accept the house clean");
+          }
+        })) {
+      ESP_LOGW(TAG, "Mapping run: could not queue the house clean");
+    }
+    this->poll_soon_();
   });
 }
 
 void OpenNeatoComponent::restore_after_mapping_() {
+  this->eco_overridden_ = false;
   ESP_LOGI(TAG, "Mapping run over: restoring Eco mode %s", this->eco_before_mapping_ ? "on" : "off");
   if (this->eco_before_mapping_)
     return;

@@ -337,6 +337,7 @@ class OpenNeatoComponent : public Component, public uart::UARTDevice {
   void pub_sensor_(SensorIdx i, float value);
   void pub_binary_(BinarySensorIdx i, bool value);
   void pub_switch_(uint8_t i, bool value);
+  void stop_refused_exploration_();
   void start_mapping_fallback_();
   void restore_after_mapping_();
   void fire_event_(const char *type);
@@ -385,6 +386,7 @@ class OpenNeatoComponent : public Component, public uart::UARTDevice {
   std::string error_kind_;
   neatocore::MappingRun mapping_;
   bool eco_before_mapping_{false};
+  bool eco_overridden_{false};
   std::string ui_state_;
   int battery_{-1};
   bool charging_{false};

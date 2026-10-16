@@ -17,27 +17,36 @@ namespace neatocore {
 
 class MappingRun {
  public:
-  enum class Action : uint8_t { NONE, FALLBACK, RESTORE };
+  // STOP: cancel the refused exploration (app stop event) and clear the alert.
+  // START: Eco on and a house clean (navigation forced to Quick meanwhile).
+  // RESTORE: put Eco mode back.
+  enum class Action : uint8_t { NONE, STOP, START, RESTORE };
 
   // Exploration requested now.
   void start(uint32_t now_ms);
   // One GetState/GetErr snapshot; returns what the component must do.
   Action update(const std::string &ui, bool has_error, int error_code, uint32_t now_ms);
-  // True from a fallback until its clean is over (settings overridden meanwhile).
-  bool overriding() const { return this->phase_ == Phase::FALLBACK_STARTING || this->phase_ == Phase::FALLBACK_RUNNING; }
+  // True while the fallback clean is starting or running (settings overridden).
+  bool overriding() const { return this->phase_ == Phase::STARTING || this->phase_ == Phase::RUNNING; }
   bool busy() const { return this->phase_ != Phase::IDLE; }
 
-  static bool is_persistent_map_alert(int error_code);
+  // Alerts meaning the persistent map could not be had. 236 (acquiring map
+  // data) is the attempt in progress, not a failure.
+  static bool is_persistent_map_failure(int error_code);
 
-  // Time allowed for the exploration to start or fail, and for the fallback
-  // clean to start.
-  static constexpr uint32_t EXPLORE_TIMEOUT_MS = 90000;
-  static constexpr uint32_t FALLBACK_START_TIMEOUT_MS = 120000;
+  static constexpr uint32_t EXPLORE_TIMEOUT_MS = 120000;
+  // Re-send the stop / start when the robot has not reacted after this long,
+  // and give up after the matching timeout.
+  static constexpr uint32_t RETRY_MS = 30000;
+  static constexpr uint32_t STOP_TIMEOUT_MS = 120000;
+  static constexpr uint32_t START_TIMEOUT_MS = 120000;
 
  private:
-  enum class Phase : uint8_t { IDLE, EXPLORING, FALLBACK_STARTING, FALLBACK_RUNNING };
+  enum class Phase : uint8_t { IDLE, EXPLORING, STOPPING, STARTING, RUNNING };
+  Action enter_(Phase phase, uint32_t now_ms, Action action);
   Phase phase_{Phase::IDLE};
   uint32_t since_ms_{0};
+  uint32_t sent_ms_{0};
 };
 
 }  // namespace neatocore

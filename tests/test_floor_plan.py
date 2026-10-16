@@ -226,7 +226,10 @@ async def test_http_explore_falls_back_to_quiet_clean(hass: HomeAssistant) -> No
         setattr(api, name, AsyncMock(return_value={"ok": True}))
     states = iter(
         [
+            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 236}),
             ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 234}),
+            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": False, "errorCode": 200}),
+            ("UIMGR_STATE_IDLE", {"hasError": False, "errorCode": 200}),
             ("UIMGR_STATE_HOUSECLEANINGRUNNING", {"hasError": False, "errorCode": 200}),
             ("UIMGR_STATE_IDLE", {"hasError": False, "errorCode": 200}),
         ]
@@ -246,7 +249,7 @@ async def test_http_explore_falls_back_to_quiet_clean(hass: HomeAssistant) -> No
     hass.data.setdefault(DOMAIN, {})["e1"] = {"mapper": mapper}
 
     async def fake_sleep(_s: float) -> None:
-        if vac._api.clean.await_count:
+        if vac._api.set_user_setting.await_count:
             await refresh()
 
     with patch("custom_components.openneato.vacuum.asyncio.sleep", fake_sleep):

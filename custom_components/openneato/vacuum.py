@@ -38,8 +38,10 @@ SERVICE_MANUAL_MOVE = "manual_move"
 # Neato cloud (234 "Failed to load persistent map" and friends). The ESPHome
 # firmware handles the fallback itself (neato_mapping.h); this is the same
 # for the HTTP firmware.
-PERSISTENT_MAP_ALERTS = frozenset({231, 234, 235, 236, 238, 239})
-EXPLORE_TIMEOUT_S = 90.0
+# 236 (acquiring map data) is the attempt in progress, not a failure.
+PERSISTENT_MAP_ALERTS = frozenset({231, 234, 235, 238, 239})
+EXPLORE_TIMEOUT_S = 120.0
+STOP_TIMEOUT_S = 120.0
 FALLBACK_TIMEOUT_S = 6 * 3600.0
 FALLBACK_START_TIMEOUT_S = 120.0
 FALLBACK_POLL_S = 30.0
@@ -295,9 +297,20 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
         mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
         if mapper is not None:
             mapper.async_mapping_run_requested()
-        # The robot sits in STARTHOUSECLEANING retrying the map load until stopped.
+        # The robot sits in STARTHOUSECLEANING retrying the map load until
+        # stopped, and only takes a new clean once it is back to idle.
         await self._api.clean("stop")
         await self._api.clear_errors()
+        began = time.monotonic()
+        while True:
+            ui = ((self.coordinator.data or {}).get("state") or {}).get("uiState", "")
+            if ui in ("UIMGR_STATE_IDLE", "UIMGR_STATE_STANDBY"):
+                break
+            if time.monotonic() - began > STOP_TIMEOUT_S:
+                _LOGGER.warning("Mapping run: the robot did not stop the refused exploration; giving up")
+                return
+            await asyncio.sleep(EXPLORE_POLL_S)
+            await self.coordinator.async_request_refresh()
         await self._api.set_user_setting("EcoMode", "ON")
         await self._api.clean("house")
         if eco_before:

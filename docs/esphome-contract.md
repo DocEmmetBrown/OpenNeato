@@ -176,7 +176,7 @@ Failures respond `success: false` with an `error_message`. Actions that need a s
 
 | Action | Variables | Response `data` |
 |---|---|---|
-| `clean` | `action: string` — `house` (start, or resume when paused), `spot`, `pause`, `stop`, `dock`, `explore` (mapping run: `Clean Explore`, the Smart App exploration run, no cleaning; if the robot answers with a persistent-map alert — 231, 234–236, 238, 239 — the device clears it and runs a house clean with Eco on and Quick navigation instead, restoring Eco afterwards) | `{}` |
+| `clean` | `action: string` — `house` (start, or resume when paused), `spot`, `pause`, `stop`, `dock`, `explore` (mapping run: `Clean Explore`, the Smart App exploration run, no cleaning; if the robot fails with a persistent-map alert — 231, 234, 235, 238, 239 (236 is the attempt in progress) — the device sends the stop event, clears the alert, waits for idle and runs a house clean with Eco on and Quick navigation instead, restoring Eco afterwards) | `{}` |
 | `play_sound` | `sound_id: int` (0–20) | `{}` |
 | `set_user_setting` | `key: string`, `value: string` — `SetUserSettings` key/value (`EcoMode`, `ON`) | `{}` |
 | `send_command` | `command: string` — raw serial command | `{"response": "<raw text including the command echo, without 0x1A>"}` |
