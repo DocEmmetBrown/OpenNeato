@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,7 +29,13 @@ def no_frontend():
 async def _ws(hass: HomeAssistant, handler, msg: dict[str, Any]) -> Any:
     connection = MagicMock()
     handler(hass, connection, {"id": 1, **msg})
-    await hass.async_block_till_done()
+    # async_response handlers run as background tasks, which
+    # async_block_till_done does not always wait for: wait for the reply.
+    for _ in range(100):
+        await hass.async_block_till_done()
+        if connection.send_result.called or connection.send_error.called:
+            break
+        await asyncio.sleep(0.01)
     if connection.send_error.called:
         raise AssertionError(connection.send_error.call_args)
     return connection.send_result.call_args[0][1]
