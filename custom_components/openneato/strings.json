@@ -496,6 +496,24 @@
     "reset_floor_plan": {
       "name": "Reset floor plan",
       "description": "Start the floor plan again from scratch. Saved floor plans are kept."
+    },
+    "manual_move": {
+      "name": "Manual move",
+      "description": "Drive the wheels by a distance while manual mode is on (ESPHome firmware). The robot stops on its own after 5 s without a move, on a bumper hit, a lifted wheel or a stall.",
+      "fields": {
+        "left_mm": {
+          "name": "Left wheel",
+          "description": "Distance for the left wheel, negative to reverse."
+        },
+        "right_mm": {
+          "name": "Right wheel",
+          "description": "Distance for the right wheel, negative to reverse."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "Wheel speed; 0 with both distances 0 stops."
+        }
+      }
     }
   }
 }

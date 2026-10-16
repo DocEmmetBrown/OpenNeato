@@ -30,6 +30,7 @@ SERVICE_SAVE_FLOOR_PLAN = "save_floor_plan"
 SERVICE_RESTORE_FLOOR_PLAN = "restore_floor_plan"
 SERVICE_DELETE_FLOOR_PLAN = "delete_floor_plan"
 SERVICE_RESET_FLOOR_PLAN = "reset_floor_plan"
+SERVICE_MANUAL_MOVE = "manual_move"
 ATTR_NAME = "name"
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,6 +82,15 @@ async def async_setup_entry(
         SERVICE_DELETE_FLOOR_PLAN, {vol.Required(ATTR_NAME): cv.string}, "async_delete_floor_plan"
     )
     platform.async_register_entity_service(SERVICE_RESET_FLOOR_PLAN, None, "async_reset_floor_plan")
+    platform.async_register_entity_service(
+        SERVICE_MANUAL_MOVE,
+        {
+            vol.Required("left_mm"): vol.All(vol.Coerce(int), vol.Range(min=-10000, max=10000)),
+            vol.Required("right_mm"): vol.All(vol.Coerce(int), vol.Range(min=-10000, max=10000)),
+            vol.Optional("speed", default=150): vol.All(vol.Coerce(int), vol.Range(min=0, max=350)),
+        },
+        "async_manual_move",
+    )
 
 
 class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
@@ -247,6 +257,14 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
         else:
             await self._api.send_serial_command("Clean Explore")
         await self.coordinator.async_request_refresh()
+
+    async def async_manual_move(self, left_mm: int, right_mm: int, speed: int = 150) -> None:
+        """Drive the wheels in manual mode (ESPHome firmware only)."""
+        if not isinstance(self._api, OpenNeatoEsphomeClient):
+            raise HomeAssistantError("Manual drive from Home Assistant needs the OpenNeato ESPHome firmware")
+        await self._api.call_action(
+            "manual_move", {"left_mm": left_mm, "right_mm": right_mm, "speed": speed}, response=False
+        )
 
     async def async_save_floor_plan(self, name: str | None = None) -> None:
         """Save the current floor plan."""

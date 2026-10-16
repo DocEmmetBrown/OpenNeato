@@ -3,9 +3,12 @@
 # Settings > Dashboards > Add dashboard > New dashboard from scratch, open it,
 # then the pencil > three dots > Raw configuration editor, and paste this file.
 #
-# Entity IDs assume the ESPHome node is called "neato" (substitution `name`)
-# and its friendly name "Neato". For another name, replace every "neato_" and
-# "vacuum.neato" below. Needs the OpenNeato integration (vacuum entity, map card).
+# Entity IDs assume the prefix "neato" (vacuum.neato, sensor.neato_battery, ...).
+# Home Assistant derives it from the device name, and recent versions put the
+# area first (e.g. "bureau_neato"). Look up the prefix of your Neato entities
+# (Settings > Entities) and replace every ".neato" with ".<prefix>", e.g.
+# ".neato" -> ".bureau_neato". Every ".neato" below is an entity ID, so a plain
+# find-and-replace is safe. Needs the OpenNeato integration (vacuum, map card).
 views:
 - title: Neato
   path: neato
@@ -951,11 +954,13 @@ views:
           show_state: false
           tap_action: &id019
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: -100
               right_mm: 100
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id019
           grid_options:
             columns: 4
@@ -966,11 +971,13 @@ views:
           show_state: false
           tap_action: &id020
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: 300
               right_mm: 300
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id020
           grid_options:
             columns: 4
@@ -981,11 +988,13 @@ views:
           show_state: false
           tap_action: &id021
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: 100
               right_mm: -100
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id021
           grid_options:
             columns: 4
@@ -996,11 +1005,13 @@ views:
           show_state: false
           tap_action: &id022
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: -200
               right_mm: -100
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id022
           grid_options:
             columns: 4
@@ -1011,11 +1022,13 @@ views:
           show_state: false
           tap_action: &id023
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: 0
               right_mm: 0
               speed: 0
+            target:
+              entity_id: vacuum.neato
           hold_action: *id023
           grid_options:
             columns: 4
@@ -1026,11 +1039,13 @@ views:
           show_state: false
           tap_action: &id024
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: -100
               right_mm: -200
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id024
           grid_options:
             columns: 4
@@ -1041,11 +1056,13 @@ views:
           show_state: false
           tap_action: &id025
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: -200
               right_mm: 200
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id025
           grid_options:
             columns: 4
@@ -1056,11 +1073,13 @@ views:
           show_state: false
           tap_action: &id026
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: -200
               right_mm: -200
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id026
           grid_options:
             columns: 4
@@ -1071,11 +1090,13 @@ views:
           show_state: false
           tap_action: &id027
             action: perform-action
-            perform_action: esphome.neato_manual_move
+            perform_action: openneato.manual_move
             data:
               left_mm: 200
               right_mm: -200
               speed: 150
+            target:
+              entity_id: vacuum.neato
           hold_action: *id027
           grid_options:
             columns: 4

@@ -44,3 +44,33 @@ reset_floor_plan:
     entity:
       integration: openneato
       domain: vacuum
+
+manual_move:
+  target:
+    entity:
+      integration: openneato
+      domain: vacuum
+  fields:
+    left_mm:
+      required: true
+      example: 300
+      selector:
+        number:
+          min: -10000
+          max: 10000
+          unit_of_measurement: mm
+    right_mm:
+      required: true
+      example: 300
+      selector:
+        number:
+          min: -10000
+          max: 10000
+          unit_of_measurement: mm
+    speed:
+      default: 150
+      selector:
+        number:
+          min: 0
+          max: 350
+          unit_of_measurement: mm/s

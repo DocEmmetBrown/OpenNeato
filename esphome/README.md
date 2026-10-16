@@ -79,7 +79,8 @@ settings). The `Restart bridge` / `Factory reset bridge` buttons do the same fro
 
 [`dashboard.yaml`](dashboard.yaml) is a Home Assistant dashboard with every command and entity (map card,
 cleaning controls, schedule, settings, manual drive, diagnostics). Paste it into a new dashboard's raw
-configuration editor; it assumes the node name `neato`.
+configuration editor; it assumes the entity prefix `neato` (replace every `.neato` with yours, e.g.
+`.bureau_neato` when Home Assistant adds the area).
 
 ## Hub options
 

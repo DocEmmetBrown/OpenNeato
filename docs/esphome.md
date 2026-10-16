@@ -109,7 +109,8 @@ not be sent to the robot (it has no serial command for no-go lines). To keep it 
 [`esphome/dashboard.yaml`](../esphome/dashboard.yaml) is a ready-made dashboard with every command and entity
 of the ESPHome firmware: the live map card and cleaning controls, the weekly schedule, robot settings and
 maintenance reminders, a manual-drive pad and diagnostics. Create a new dashboard, open its raw configuration
-editor and paste the file. It assumes the node is called `neato`; replace `neato_` otherwise.
+editor and paste the file. It assumes the entity prefix `neato` (`vacuum.neato`); Home Assistant may put the
+area first (`vacuum.bureau_neato`), so replace every `.neato` with your prefix.
 
 ## 6. Scheduling
 

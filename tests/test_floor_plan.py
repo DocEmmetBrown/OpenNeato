@@ -205,6 +205,11 @@ async def test_mapping_run_and_services(hass: HomeAssistant, esphome_entry, esph
     await hass.services.async_call(DOMAIN, "delete_floor_plan", {"entity_id": vacuum, "name": "Upstairs"}, blocking=True)
     assert mapper.plan_names == []
 
+    await hass.services.async_call(
+        DOMAIN, "manual_move", {"entity_id": vacuum, "left_mm": -100, "right_mm": 100}, blocking=True
+    )
+    assert ("manual_move", {"left_mm": -100, "right_mm": 100, "speed": 150}) in esphome_device.calls
+
     # Not while the robot is out.
     esphome_device.set("ui_state", "UIMGR_STATE_HOUSECLEANINGRUNNING")
     await hass.data[DOMAIN][esphome_entry.entry_id]["coordinator"].async_refresh()
