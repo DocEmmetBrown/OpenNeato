@@ -190,6 +190,8 @@ void OpenNeatoComponent::setup() {
     this->poll_soon_();
   });
   this->client_.set_nav_mode_getter([this]() -> std::string {
+    if (this->mapping_.overriding())
+      return "Quick";  // mapping-run fallback: cover the floor fast
     auto *sel = this->selects_[SELECT_NAVIGATION_MODE];
     if (sel == nullptr || !sel->has_state())
       return "";
@@ -326,6 +328,7 @@ void OpenNeatoComponent::handle_state_(const neatocore::RobotState &state, bool 
 
   if (err_ok) {
     this->has_error_ = err.has_error;
+    this->error_code_ = err.error_code;
     this->error_kind_ = err.kind;
     this->pub_text_(TEXT_ERROR_MESSAGE, err.display_message);
     this->pub_text_(TEXT_ERROR_KIND, err.kind);
@@ -336,6 +339,17 @@ void OpenNeatoComponent::handle_state_(const neatocore::RobotState &state, bool 
   }
   for (const char *ev : this->events_.update_state(ui, state.robot_state))
     this->fire_event_(ev);
+
+  switch (this->mapping_.update(ui, this->has_error_, this->error_code_, millis())) {
+    case neatocore::MappingRun::Action::FALLBACK:
+      this->start_mapping_fallback_();
+      break;
+    case neatocore::MappingRun::Action::RESTORE:
+      this->restore_after_mapping_();
+      break;
+    case neatocore::MappingRun::Action::NONE:
+      break;
+  }
 
   this->pub_text_(TEXT_ACTIVITY, neatocore::compute_activity(ui, this->manual_.active(), this->has_error_,
                                                          this->error_kind_, this->charging_, this->ext_power_));
@@ -919,6 +933,42 @@ void OpenNeatoComponent::manual_mode_(bool on) {
     this->publish_manual_();
 }
 
+// -- Mapping run fallback ----------------------------------------------------------
+
+// The robot refused the exploration run (no persistent map without the Neato
+// cloud): map the floor with a quiet house clean instead -- Eco on, Quick
+// navigation -- still recorded as a mapping run.
+void OpenNeatoComponent::start_mapping_fallback_() {
+  ESP_LOGW(TAG, "Exploration refused (alert %d): mapping with a quiet house clean instead", this->error_code_);
+  auto *eco = this->switches_[SWITCH_ECO_MODE];
+  this->eco_before_mapping_ = eco != nullptr && eco->state;
+  this->history_->expect_mode("explore", millis());
+  this->client_.clear_errors([this](bool) {
+    this->client_.set_user_setting("EcoMode", "ON", [this](bool ok) {
+      if (ok)
+        this->pub_switch_(SWITCH_ECO_MODE, true);
+      if (!this->client_.clean("house", [](bool started) {
+            if (!started) {
+              ESP_LOGW(TAG, "Mapping run: the robot did not start the house clean");
+            }
+          })) {
+        ESP_LOGW(TAG, "Mapping run: could not queue the house clean");
+      }
+      this->poll_soon_();
+    });
+  });
+}
+
+void OpenNeatoComponent::restore_after_mapping_() {
+  ESP_LOGI(TAG, "Mapping run over: restoring Eco mode %s", this->eco_before_mapping_ ? "on" : "off");
+  if (this->eco_before_mapping_)
+    return;
+  this->client_.set_user_setting("EcoMode", "OFF", [this](bool ok) {
+    if (ok)
+      this->pub_switch_(SWITCH_ECO_MODE, false);
+  });
+}
+
 // -- API actions -----------------------------------------------------------------
 
 bool OpenNeatoComponent::api_clean(const std::string &action) {
@@ -943,8 +993,10 @@ bool OpenNeatoComponent::api_clean(const std::string &action) {
     this->set_error_("serial queue full");
     return false;
   }
-  if (action == "explore")
+  if (action == "explore") {
     this->history_->expect_mode("explore", millis());
+    this->mapping_.start(millis());
+  }
   this->poll_soon_();
   this->last_error_.clear();
   return true;

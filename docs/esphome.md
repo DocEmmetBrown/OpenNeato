@@ -89,8 +89,11 @@ cleaning it, start a **mapping run**: the robot's own exploration run (`Clean Ex
 button on the ESPHome device, the card's *Map* control (`items: [..., explore]`), or
 `vacuum.send_command` with `command: explore` (also works with the web-UI firmware).
 
-When the run ends its scans are merged into the floor plan and the result is saved as *Mapping run
-<date>*. On the robot device:
+Exploration is the Neato app's persistent-map feature, and most robots refuse it now that the Neato cloud is
+gone: they raise *Failed to load persistent map* (alert 234) and stay on the dock. The bridge then clears the
+alert and maps the floor with a **quiet house clean** instead (Eco on, Quick navigation), and puts Eco mode
+back when it is over. Either way the run is recorded as a mapping run: when it ends its scans are merged into
+the floor plan and the result is saved as *Mapping run <date>*. On the robot device:
 
 - **Floor plan** (select): the saved plans; picking one restores it.
 - **Save floor plan** / **Reset floor plan** (buttons): save the current plan under the date and time, or

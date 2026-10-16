@@ -215,3 +215,44 @@ async def test_mapping_run_and_services(hass: HomeAssistant, esphome_entry, esph
     await hass.data[DOMAIN][esphome_entry.entry_id]["coordinator"].async_refresh()
     with pytest.raises(HomeAssistantError, match="Stop the robot"):
         await hass.services.async_call(DOMAIN, "start_mapping_run", {"entity_id": vacuum}, blocking=True)
+
+
+async def test_http_explore_falls_back_to_quiet_clean(hass: HomeAssistant) -> None:
+    """HTTP firmware: a refused exploration becomes an Eco house clean, Eco restored after."""
+    from custom_components.openneato.vacuum import OpenNeatoVacuum
+
+    api = MagicMock()
+    for name in ("send_serial_command", "clear_errors", "set_user_setting", "clean"):
+        setattr(api, name, AsyncMock(return_value={"ok": True}))
+    states = iter(
+        [
+            ("UIMGR_STATE_STARTHOUSECLEANING", {"hasError": True, "errorCode": 234}),
+            ("UIMGR_STATE_HOUSECLEANINGRUNNING", {"hasError": False, "errorCode": 200}),
+            ("UIMGR_STATE_IDLE", {"hasError": False, "errorCode": 200}),
+        ]
+    )
+    coordinator = MagicMock()
+    coordinator.data = {"state": {"uiState": "UIMGR_STATE_IDLE"}, "error": {}, "user_settings": {"ecoMode": False}}
+
+    async def refresh() -> None:
+        ui, error = next(states, ("UIMGR_STATE_IDLE", {}))
+        coordinator.data = {**coordinator.data, "state": {"uiState": ui}, "error": error}
+
+    coordinator.async_request_refresh = refresh
+    vac = OpenNeatoVacuum(coordinator, api, "SER1")
+    mapper = MagicMock()
+    vac.hass = hass
+    vac.platform = SimpleNamespace(config_entry=SimpleNamespace(entry_id="e1"))
+    hass.data.setdefault(DOMAIN, {})["e1"] = {"mapper": mapper}
+
+    async def fake_sleep(_s: float) -> None:
+        if vac._api.clean.await_count:
+            await refresh()
+
+    with patch("custom_components.openneato.vacuum.asyncio.sleep", fake_sleep):
+        await vac._async_explore_fallback()
+
+    api.clear_errors.assert_awaited_once()
+    api.clean.assert_awaited_once_with("house")
+    mapper.async_mapping_run_requested.assert_called_once()
+    assert [c.args for c in api.set_user_setting.await_args_list] == [("EcoMode", "ON"), ("EcoMode", "OFF")]

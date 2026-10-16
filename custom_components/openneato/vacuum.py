@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.vacuum import (
@@ -31,6 +33,17 @@ SERVICE_RESTORE_FLOOR_PLAN = "restore_floor_plan"
 SERVICE_DELETE_FLOOR_PLAN = "delete_floor_plan"
 SERVICE_RESET_FLOOR_PLAN = "reset_floor_plan"
 SERVICE_MANUAL_MOVE = "manual_move"
+
+# Persistent-map alerts: the robot refuses an exploration run without the
+# Neato cloud (234 "Failed to load persistent map" and friends). The ESPHome
+# firmware handles the fallback itself (neato_mapping.h); this is the same
+# for the HTTP firmware.
+PERSISTENT_MAP_ALERTS = frozenset({231, 234, 235, 236, 238, 239})
+EXPLORE_TIMEOUT_S = 90.0
+FALLBACK_TIMEOUT_S = 6 * 3600.0
+FALLBACK_START_TIMEOUT_S = 120.0
+FALLBACK_POLL_S = 30.0
+EXPLORE_POLL_S = 3.0
 ATTR_NAME = "name"
 
 _LOGGER = logging.getLogger(__name__)
@@ -256,7 +269,51 @@ class OpenNeatoVacuum(OpenNeatoEntity, StateVacuumEntity):
             await self._api.clean("explore")
         else:
             await self._api.send_serial_command("Clean Explore")
+            self.hass.async_create_background_task(
+                self._async_explore_fallback(), f"{DOMAIN} mapping run fallback"
+            )
         await self.coordinator.async_request_refresh()
+
+    async def _async_explore_fallback(self) -> None:
+        """HTTP firmware: if exploration is refused, map with a quiet house clean."""
+        deadline = time.monotonic() + EXPLORE_TIMEOUT_S
+        while time.monotonic() < deadline:
+            await asyncio.sleep(EXPLORE_POLL_S)
+            await self.coordinator.async_request_refresh()
+            data = self.coordinator.data or {}
+            ui = (data.get("state") or {}).get("uiState", "")
+            error = data.get("error") or {}
+            if "CLEANINGRUNNING" in ui:
+                return  # exploring after all
+            if error.get("hasError") and int(error.get("errorCode") or 0) in PERSISTENT_MAP_ALERTS:
+                break
+        else:
+            return
+
+        _LOGGER.warning("Exploration refused (no persistent map): mapping with a quiet house clean instead")
+        eco_before = bool((self.coordinator.data or {}).get("user_settings", {}).get("ecoMode"))
+        mapper = self.hass.data[DOMAIN][self.platform.config_entry.entry_id].get("mapper")
+        if mapper is not None:
+            mapper.async_mapping_run_requested()
+        await self._api.clear_errors()
+        await self._api.set_user_setting("EcoMode", "ON")
+        await self._api.clean("house")
+        if eco_before:
+            return
+
+        # Put Eco mode back once the clean is over.
+        began = time.monotonic()
+        started = False
+        while time.monotonic() - began < FALLBACK_TIMEOUT_S:
+            await asyncio.sleep(FALLBACK_POLL_S)
+            ui = ((self.coordinator.data or {}).get("state") or {}).get("uiState", "")
+            if "CLEANINGRUNNING" in ui:
+                started = True
+            elif ui in ("UIMGR_STATE_IDLE", "UIMGR_STATE_STANDBY") and (
+                started or time.monotonic() - began > FALLBACK_START_TIMEOUT_S
+            ):
+                break
+        await self._api.set_user_setting("EcoMode", "OFF")
 
     async def async_manual_move(self, left_mm: int, right_mm: int, speed: int = 150) -> None:
         """Drive the wheels in manual mode (ESPHome firmware only)."""

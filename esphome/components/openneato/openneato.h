@@ -29,6 +29,7 @@
 #include "neato_client.h"
 #include "neato_events.h"
 #include "neato_history.h"
+#include "neato_mapping.h"
 #include "neato_manual.h"
 #include "neato_schedule.h"
 
@@ -336,6 +337,8 @@ class OpenNeatoComponent : public Component, public uart::UARTDevice {
   void pub_sensor_(SensorIdx i, float value);
   void pub_binary_(BinarySensorIdx i, bool value);
   void pub_switch_(uint8_t i, bool value);
+  void start_mapping_fallback_();
+  void restore_after_mapping_();
   void fire_event_(const char *type);
 
   void manual_mode_(bool on);
@@ -378,7 +381,10 @@ class OpenNeatoComponent : public Component, public uart::UARTDevice {
   bool connected_{false};
   bool active_{false};
   bool has_error_{false};
+  int error_code_{200};
   std::string error_kind_;
+  neatocore::MappingRun mapping_;
+  bool eco_before_mapping_{false};
   std::string ui_state_;
   int battery_{-1};
   bool charging_{false};
