@@ -1112,7 +1112,7 @@ void OpenNeatoComponent::begin_send_command(uint32_t call_id, const std::string 
   bool queued = this->client_.send_raw(command, [req](neatocore::CmdStatus status, const std::string &raw) {
     req->ok = status == neatocore::CmdStatus::SUCCESS;
     req->error = req->ok ? "" : neatocore::cmd_status_str(status);
-    req->response = raw;
+    req->response = neatocore::printable_ascii(raw);
     req->done = true;
   });
   if (!queued && !req->done) {

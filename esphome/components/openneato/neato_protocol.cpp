@@ -702,4 +702,14 @@ std::string build_set_time(int year, int month, int day, int hour, int minute, i
   return buf;
 }
 
+std::string printable_ascii(const std::string &raw) {
+  std::string out;
+  out.reserve(raw.size());
+  for (char c : raw) {
+    auto u = static_cast<unsigned char>(c);
+    out += (u == '\r' || u == '\n' || u == '\t' || (u >= 0x20 && u < 0x7f)) ? c : '?';
+  }
+  return out;
+}
+
 }  // namespace neatocore

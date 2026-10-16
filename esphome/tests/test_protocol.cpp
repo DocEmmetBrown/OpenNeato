@@ -195,3 +195,7 @@ TEST(sound_names) {
   CHECK_STR(SOUND_NAMES[SOUND_ALERT], "Alert");
   CHECK_STR(SOUND_NAMES[20], "Thank you");
 }
+
+TEST(printable_ascii_replaces_stray_bytes) {
+  CHECK_STR(printable_ascii("Eco Mode, ON\r\n\xff\xd8x\t"), "Eco Mode, ON\r\n??x\t");
+}

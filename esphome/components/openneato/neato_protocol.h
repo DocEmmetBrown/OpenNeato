@@ -178,7 +178,10 @@ std::string compute_skey(const std::string &serial_number);
 std::string build_set_event(const char *event, const std::string &skey);
 
 bool contains(const std::string &haystack, const char *needle);
-bool is_idle_state(const std::string &ui);  // IDLE or STANDBY
+bool is_idle_state(const std::string &ui);
+// Replies can carry stray non-ASCII bytes, which are not valid UTF-8 in the API's
+// JSON: keep printable ASCII, CR, LF and tab, replace the rest with '?'.
+std::string printable_ascii(const std::string &raw);  // IDLE or STANDBY
 bool is_cleaning_state(const std::string &ui);  // house/spot running or paused (not manual)
 bool is_paused_state(const std::string &ui);
 bool is_docking_state(const std::string &ui);
