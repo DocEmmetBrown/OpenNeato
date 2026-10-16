@@ -253,18 +253,16 @@ async def test_http_mapping_run_recovers_with_restart(hass: HomeAssistant) -> No
             ("UIMGR_STATE_IDLE", {}),  # stopped
             ("UIMGR_STATE_IDLE", {}),  # back after the restart
             ("UIMGR_STATE_HOUSECLEANINGRUNNING", {}),
-            ("UIMGR_STATE_HOUSECLEANINGRUNNING", {}),
-            ("UIMGR_STATE_IDLE", {}),  # clean over
         ],
     )
     with patch("custom_components.openneato.vacuum.asyncio.sleep", _no_sleep):
-        await vac._async_quiet_mapping_run()
+        await vac._async_mapping_run()
 
     assert [c.args for c in api.clean.await_args_list] == [("house",), ("stop",), ("house",)]
     api.clear_errors.assert_awaited_once()
     api.power.assert_awaited_once_with("restart")
     api.send_serial_command.assert_not_awaited()  # never Clean Explore
-    assert [c.args for c in api.set_user_setting.await_args_list] == [("EcoMode", "ON"), ("EcoMode", "OFF")]
+    api.set_user_setting.assert_not_awaited()  # Eco is reset by the robot at start
 
 
 async def test_http_mapping_run_gives_up(hass: HomeAssistant) -> None:
@@ -272,7 +270,6 @@ async def test_http_mapping_run_gives_up(hass: HomeAssistant) -> None:
     idle = ("UIMGR_STATE_IDLE", {})
     vac, api = _http_vacuum(hass, [refused, idle, idle, refused])
     with patch("custom_components.openneato.vacuum.asyncio.sleep", _no_sleep):
-        await vac._async_quiet_mapping_run()
+        await vac._async_mapping_run()
     assert [c.args for c in api.clean.await_args_list] == [("house",), ("stop",), ("house",), ("stop",)]
     api.power.assert_awaited_once_with("restart")
-    assert api.set_user_setting.await_args_list[-1].args == ("EcoMode", "OFF")

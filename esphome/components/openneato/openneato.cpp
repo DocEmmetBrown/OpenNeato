@@ -941,14 +941,10 @@ void OpenNeatoComponent::manual_mode_(bool on) {
 // -- Guarded starts (persistent-map recovery, mapping run) --------------------------
 
 // Starts a clean the robot may refuse with a persistent-map alert (see
-// neato_mapping.h). A mapping run is a quiet house clean: Eco on, Quick
-// navigation (nav mode getter), recorded with mode "explore".
+// neato_mapping.h). A mapping run is a house clean with Quick navigation (nav
+// mode getter), recorded with mode "explore". (Eco cannot be used: the robot
+// resets it to OFF whenever a clean starts, and ignores it mid-clean.)
 void OpenNeatoComponent::start_guarded_(neatocore::StartGuard::Kind kind) {
-  if (kind == neatocore::StartGuard::Kind::MAPPING) {
-    auto *eco = this->switches_[SWITCH_ECO_MODE];
-    this->eco_before_mapping_ = eco != nullptr && eco->state;
-    this->eco_overridden_ = true;
-  }
   this->guard_.begin(kind, millis());
   this->send_guarded_start_();
 }
@@ -966,32 +962,16 @@ void OpenNeatoComponent::send_guarded_start_() {
     }
     this->poll_soon_();
   };
-  if (kind != neatocore::StartGuard::Kind::MAPPING) {
-    start();
-    return;
+  if (kind == neatocore::StartGuard::Kind::MAPPING) {
+    ESP_LOGI(TAG, "Mapping run: starting a house clean (Quick navigation)");
+    this->history_->expect_mode("explore", millis());
   }
-  ESP_LOGI(TAG, "Mapping run: starting a quiet house clean");
-  this->history_->expect_mode("explore", millis());
-  this->client_.set_user_setting("EcoMode", "ON", [this, start](bool ok) {
-    if (ok)
-      this->pub_switch_(SWITCH_ECO_MODE, true);
-    start();
-  });
+  start();
 }
 
 void OpenNeatoComponent::finish_guarded_() {
   if (this->guard_.gave_up())
     ESP_LOGW(TAG, "The robot would not start the clean (persistent map); giving up");
-  if (!this->eco_overridden_)
-    return;
-  this->eco_overridden_ = false;
-  ESP_LOGI(TAG, "Mapping run over: restoring Eco mode %s", this->eco_before_mapping_ ? "on" : "off");
-  if (this->eco_before_mapping_)
-    return;
-  this->client_.set_user_setting("EcoMode", "OFF", [this](bool ok) {
-    if (ok)
-      this->pub_switch_(SWITCH_ECO_MODE, false);
-  });
 }
 
 // -- API actions -----------------------------------------------------------------
@@ -1011,7 +991,7 @@ bool OpenNeatoComponent::api_clean(const std::string &action) {
     return false;
   }
   // New cleans are guarded against the persistent-map refusal; "explore"
-  // (mapping run) is a quiet house clean: Clean Explore leaves robots without
+  // (mapping run) is a house clean: Clean Explore leaves robots without
   // the Neato cloud stuck until restarted.
   const std::string &ui = this->ui_state_;
   bool resume = (action == "house" && ui.find("HOUSECLEANINGPAUSED") != std::string::npos) ||

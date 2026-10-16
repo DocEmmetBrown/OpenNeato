@@ -385,8 +385,6 @@ class OpenNeatoComponent : public Component, public uart::UARTDevice {
   int error_code_{200};
   std::string error_kind_;
   neatocore::StartGuard guard_;
-  bool eco_before_mapping_{false};
-  bool eco_overridden_{false};
   std::string ui_state_;
   int battery_{-1};
   bool charging_{false};

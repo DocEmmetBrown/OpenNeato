@@ -6,8 +6,8 @@
 // ST_C_Standby, beeping. Once there, every clean is refused until the robot
 // restarts (also documented upstream: renjfk/OpenNeato docs/user-guide.md,
 // "Robot stuck starting a house clean"). The exploration run (Clean Explore)
-// reliably puts it there, so the mapping run is a quiet house clean instead
-// (Eco on, Quick navigation) and Clean Explore is never sent.
+// reliably puts it there, so the mapping run is a house clean with Quick
+// navigation instead and Clean Explore is never sent.
 //
 // StartGuard follows one clean started by the bridge: on a refusal it has the
 // component stop it (app stop event), restart the robot, and start it again,
@@ -24,8 +24,7 @@ class StartGuard {
  public:
   enum class Kind : uint8_t { HOUSE, SPOT, MAPPING };
   // STOP: app stop event + clear errors. RESTART: power-cycle the robot.
-  // START: start the clean again (for MAPPING: Eco on + house clean).
-  // DONE: the clean is over or given up; restore what a mapping run changed.
+  // START: start the clean again. DONE: the clean is over or given up.
   enum class Action : uint8_t { NONE, STOP, RESTART, START, DONE };
 
   // A clean of `kind` was just sent to the robot.
@@ -36,7 +35,7 @@ class StartGuard {
 
   bool busy() const { return this->phase_ != Phase::IDLE; }
   Kind kind() const { return this->kind_; }
-  // A mapping run is in progress (Eco and navigation overridden).
+  // A mapping run is in progress (navigation forced to Quick).
   bool mapping() const { return this->busy() && this->kind_ == Kind::MAPPING; }
   // The last update gave up (the robot refused the clean after a restart too).
   bool gave_up() const { return this->gave_up_; }

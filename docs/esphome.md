@@ -83,14 +83,18 @@ its summary (duration, area, distance, battery) once Home Assistant reconnects, 
 
 ## 4. Mapping run and floor plans
 
-The floor plan behind the replay is built from the robot's LIDAR during cleans. A **mapping run** is a quiet
-house clean (Eco on, Quick navigation) that is recorded as a mapping run: when it ends its scans are merged
-into the floor plan and the result is saved as *Mapping run <date>*, and Eco mode is put back. Start it from
+The floor plan behind the replay is built from the robot's LIDAR during cleans. A **mapping run** is a house
+clean with Quick navigation that is recorded as a mapping run: when it ends its scans are merged into the
+floor plan and the result is saved as *Mapping run <date>*. Start it from
 the *Start mapping run* button on the ESPHome device, the card's *Map* control (`items: [..., explore]`), or
 `vacuum.send_command` with `command: explore` (also works with the web-UI firmware).
 
 It does not use the robot's own exploration run (`Clean Explore`, the Neato app's map run): that needs the
 Neato cloud, and without it the robot refuses it, then every clean after it, until it is restarted.
+
+**Eco mode.** Robots that were connected to the Neato app may reset *Eco mode* to off whenever a clean starts
+(the app sent its own power level with each start) and ignore it mid-clean, so cleans started from the bridge
+run at normal power. Check with a clean: if the switch flips back to off when it starts, that is the case.
 
 **Stuck starting a clean.** Without the cloud a robot can also get stuck starting an ordinary clean: it beeps,
 shows *Acquiring map data* (236) then *Failed to load persistent map* (234), and stays in
