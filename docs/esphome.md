@@ -54,7 +54,9 @@ wifi:
   password: !secret wifi_password
 ```
 
-Later updates are regular ESPHome OTA updates.
+Later updates are regular ESPHome OTA updates. ESPHome re-fetches GitHub sources at most once a day by default;
+to build a change pushed since, set `refresh: 0s` on the package and on `external_components` (or run
+*Clean Build Files*) before installing.
 
 ## 2. Add the device to Home Assistant
 
